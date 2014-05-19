@@ -25,6 +25,8 @@ OpenServerSocket(char *port)
 	int yes=1;
 	XfSocket sock = xfalloc(sizeof(XfSocketStruct));
 
+	xf_info("Starting socket on port %s", port);
+
 	memset(&hints, 0, sizeof(hints));
 	hints.ai_family = AF_UNSPEC;
 	hints.ai_socktype = SOCK_STREAM;
@@ -41,8 +43,10 @@ OpenServerSocket(char *port)
 	if (setsockopt(sock->fd, SOL_SOCKET, SO_REUSEADDR, &yes, sizeof(int)) == -1)
 	    error("setsockopt");
 
-	bind(sock->fd, res->ai_addr, res->ai_addrlen);
-	listen(sock->fd, BACKLOG);
+	if (bind(sock->fd, res->ai_addr, res->ai_addrlen))
+		error("Bind failed");
+	if (listen(sock->fd, BACKLOG))
+		error("Listern failed");
 
 	freeaddrinfo(res);
 

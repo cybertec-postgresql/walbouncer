@@ -5,6 +5,9 @@
 
 #include<poll.h>
 
+#include <getopt.h>
+
+
 #include "libpq-fe.h"
 
 #include "xfglobals.h"
@@ -433,6 +436,69 @@ xlf_process_message(PGconn *mc, char *buf, size_t len,
 	}
 }
 
+#define MAX_CONNINFO_LEN 4000
+
+Oid *
+xlf_find_tablespace_oids(XfConn conn)
+{
+	PGconn* masterConn;
+	// TODO: take in other options
+	char conninfo[MAX_CONNINFO_LEN+1];
+	char *buf = conninfo;
+	char *buf_end = &(conninfo[MAX_CONNINFO_LEN]);
+	Oid *oids;
+
+	memset(conninfo, 0, sizeof(conninfo));
+
+	if (conn->master_host) {
+		buf += snprintf(buf, buf_end - buf, "host=%s ", conn->master_host);
+	}
+
+	if (conn->master_port)
+		buf +=  snprintf(buf, buf_end - buf, "port=%s ", conn->master_port);
+
+	if (conn->user_name)
+		buf += snprintf(buf, buf_end - buf, "user=%s ", conn->user_name);
+
+	buf += snprintf(buf, buf_end - buf, "dbname=postgres application_name=walbouncer");//"dbname=replication replication=true application_name=walbouncer");
+
+	xf_info("Start connecting to %s\n", conninfo);
+	masterConn = PQconnectdb(conninfo);
+	if (PQstatus(masterConn) != CONNECTION_OK)
+		error(PQerrorMessage(masterConn));
+	xf_info("Connected to master\n");
+
+	{
+		PGresult *res;
+		int oidcount;
+		int i;
+
+		const char *paramValues[1] = {conn->include_tablespaces};
+		res = PQexecParams(masterConn,
+			"SELECT oid FROM pg_tablespace WHERE spcname = "
+			"ANY (string_to_array($1, ',')) "
+			"OR spcname IN ('pg_default', 'pg_global')",
+			1, NULL, paramValues,
+			NULL, NULL, 0);
+		if (PQresultStatus(res) != PGRES_TUPLES_OK)
+			error("Could not retrieve tablespaces: %s", PQerrorMessage(masterConn));
+
+		oidcount = PQntuples(res);
+		oids = xfalloc0(sizeof(Oid)*(oidcount+1));
+
+		for (i = 0; i < oidcount; i++)
+		{
+			char *oid = PQgetvalue(res, i, 0);
+			xf_info("Found tablespace oid %s %d", oid, atoi(oid));
+			oids[i] = atoi(oid);
+		}
+		PQclear(res);
+	}
+	PQfinish(masterConn);
+
+	return oids;
+}
+
 int
 XfProcessStartupPacket(XfConn conn, bool SSLdone)
 {
@@ -543,6 +609,7 @@ retry1:
 	conn->database_name = NULL;
 	conn->user_name = NULL;
 	conn->cmdline_options = NULL;
+	conn->include_tablespaces = NULL;
 
 	{
 		int32		offset = sizeof(ProtocolVersion);
@@ -594,6 +661,10 @@ retry1:
 					error("This is a WAL proxy that only accepts replication connections");
 				else
 					error("invalid value for parameter \"replication\"");
+			}
+			else if (strcmp(nameptr, "application_name") == 0)
+			{
+				conn->include_tablespaces = xfstrdup(valptr);
 			}
 			else
 			{
@@ -1049,6 +1120,7 @@ typedef struct {
 	int unsentBufferLen;
 	char unsentBuffer[FL_BUFFER_LEN];
 
+	Oid *include_tablespaces;
 } FilterData;
 
 static void
@@ -1177,14 +1249,21 @@ FilterClearBuffer(FilterData *fl)
 }
 
 bool
-NeedToFilter(RelFileNode *node)
+NeedToFilter(FilterData *fl, RelFileNode *node)
 {
-	if (node->spcNode > 16000)
+	Oid *tblspc_oid;
+
+	if (!fl->include_tablespaces)
+		return false;
+
+	tblspc_oid = fl->include_tablespaces;
+	for (; *tblspc_oid; tblspc_oid++)
 	{
-		xf_info("Filtering data in tablespace %d", node->spcNode);
-		return true;
+		if (node->spcNode == *tblspc_oid)
+			return false;
 	}
-	return false;
+	xf_info("Filtering data in tablespace %d", node->spcNode);
+	return true;
 }
 
 void
@@ -1446,7 +1525,7 @@ ProcessWalDataBlock(ReplMessage* msg, FilterData* fl, XLogRecPtr *retryPos)
 				{
 					parse_debug(" - Filenode buffered at %d", msg->dataPtr);
 					fl->recordRemaining -= sizeof(RelFileNode);
-					if (NeedToFilter(
+					if (NeedToFilter(fl,
 							(RelFileNode*) (fl->buffer + REC_HEADER_LEN)))
 					{
 						WriteNoopRecord(fl, msg);
@@ -1512,6 +1591,7 @@ ExecStartPhysical2(XfConn conn, PGconn *mc, ReplicationCommand *cmd)
 	ReplMessage *msg = xfalloc(sizeof(ReplMessage));
 	FilterData fl;
 
+
 	fl.state = FS_SYNCHRONIZING;
 	fl.dataNeeded = 0;
 	fl.recordRemaining = 0;
@@ -1522,6 +1602,15 @@ ExecStartPhysical2(XfConn conn, PGconn *mc, ReplicationCommand *cmd)
 	fl.headerLen = 0;
 	fl.bufferLen = 0;
 	fl.unsentBufferLen = 0;
+
+	if (conn->include_tablespaces)
+	{
+		xf_info("Including tablespaces: %s", conn->include_tablespaces);
+		fl.include_tablespaces = xlf_find_tablespace_oids(conn);
+	} else {
+		fl.include_tablespaces = NULL;
+	}
+
 
 	startReceivingFrom = cmd->startpoint;
 again:
@@ -1567,7 +1656,6 @@ again:
 		}
 		else
 		{
-			printf(".");
 		}
 	}
 	{
@@ -1710,8 +1798,24 @@ PGconn*
 OpenConnectionToMaster(XfConn conn)
 {
 	PGconn* masterConn;
-	// TODO: take in other options
-	char *conninfo = "host=localhost port=5432 dbname=replication replication=true";
+	char conninfo[MAX_CONNINFO_LEN+1];
+	char *buf = conninfo;
+	char *buf_end = &(conninfo[MAX_CONNINFO_LEN]);
+
+	memset(conninfo, 0, sizeof(conninfo));
+
+	if (conn->master_host) {
+		buf += snprintf(buf, buf_end - buf, "host=%s ", conn->master_host);
+	}
+
+	if (conn->master_port)
+		buf +=  snprintf(buf, buf_end - buf, "port=%s ", conn->master_port);
+
+	if (conn->user_name)
+		buf += snprintf(buf, buf_end - buf, "user=%s ", conn->user_name);
+
+	buf += snprintf(buf, buf_end - buf, "dbname=replication replication=true application_name=walbouncer");
+
 	xf_info("Start connecting to %s\n", conninfo);
 	masterConn = PQconnectdb(conninfo);
 	if (PQstatus(masterConn) != CONNECTION_OK)
@@ -1799,14 +1903,20 @@ XfCommandLoop(XfConn conn)
 	}
 }
 
+char* listen_port = "5433";
+char* master_host = "localhost";
+char* master_port = "5432";
+
 void XlogFilterMain()
 {
 	// set up signals for child reaper, etc.
 	// open socket for listening
-	XfSocket server = OpenServerSocket("5433");
+	XfSocket server = OpenServerSocket(listen_port);
 	XfConn conn;
 
 	conn = ConnCreate(server);
+	conn->master_host = master_host;
+	conn->master_port = master_port;
 
 	XfInitConnection(conn);
 
@@ -1819,9 +1929,64 @@ void XlogFilterMain()
 	CloseSocket(server);
 }
 
-int
-main(int argc, char *argv[])
+const char* progname;
+
+static void usage()
 {
+	printf("%s proxys PostgreSQL streaming replication connections and optionally does filtering\n\n", progname);
+	printf("Options:\n");
+	printf("  -?, --help                Print this message\n");
+	printf("  -h, --host=HOST           Connect to master on this host. Default localhost\n");
+	printf("  -p, --port=PORT           Run proxy on this port. Default 5433\n");
+
+}
+
+int
+main(int argc, char **argv)
+{
+	int c;
+	progname = "xlogfilter";
+
+	while (1)
+	{
+		static struct option long_options[] =
+		{
+				{"port", required_argument, 0, 'p'},
+				{"host", required_argument, 0, 'h'},
+				{"masterport", required_argument, 0, 'P'},
+				{"help", no_argument, 0, '?'},
+				{0,0,0,0}
+		};
+		int option_index = 0;
+
+		c = getopt_long(argc, argv, "p:h?",
+				long_options, &option_index);
+
+		if (c == -1)
+			break;
+
+		switch (c)
+		{
+		case 'p':
+			listen_port = strdup(optarg);
+			break;
+		case 'h':
+			master_host = strdup(optarg);
+			break;
+		case 'P':
+			master_port = strdup(optarg);
+			break;
+		case '?':
+			usage();
+			exit(0);
+			break;
+		default:
+			fprintf(stderr, "Invalid arguments\n");
+			exit(1);
+		}
+	}
+
+
 	XlogFilterMain();
 	return 0;
 }

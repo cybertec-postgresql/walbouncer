@@ -23,11 +23,17 @@ typedef struct {
 
 	ProtocolVersion proto;
 
+	char *master_host;
+	char *master_port;
+
 	char *database_name;
 	char *user_name;
 	char *cmdline_options;
 	char *guc_options;
 	int gucs_len;
+
+	// Filtering info
+	char *include_tablespaces;
 
 	// Sending state
 	XLogRecPtr sentPtr;
