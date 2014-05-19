@@ -1,0 +1,5 @@
+master/**
+slave1/**
+slave2/**
+tablespaces/**
+xlogfilter.log
