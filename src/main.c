@@ -1202,9 +1202,6 @@ WriteNoopRecord(FilterData *fl, ReplMessage *msg)
 	node ->spcNode = 0;
 	rec->xl_crc = CalculateCRC32(fl->buffer, fl->bufferLen, rec->xl_tot_len);
 
-	xf_info("Calculated CRC %X for buffer %d (%ld):", rec->xl_crc, rec->xl_tot_len, offsetof(XLogRecord, xl_prev));
-	hexdump(fl->buffer, offsetof(XLogRecord, xl_crc));
-
 	{
 		// We scribble over data in the message buffer
 		// some of the data may be in the filter unsent buffer.
