@@ -3,7 +3,6 @@
 #include<errno.h>
 #include<string.h>
 
-#include<poll.h>
 
 #include <getopt.h>
 
@@ -16,437 +15,19 @@
 #include "xfproto.h"
 #include "parser/parser.h"
 #include "xfpgtypes.h"
+#include "wbmasterconn.h"
 
-#define MAXCONNINFO 1024
 #define NAPTIME 100
-
-#define WAL_BLOCK_SIZE 8192
-#define WAL_BLOCK_MASK (WAL_BLOCK_SIZE-1)
-
-
-
-/*typedef struct Port {
-
-} Port;*/
-/*
-int
-ProcessStartupPacket(Port port, bool SSLdone)
-{
-	return 1;
-}*/
-
-int
-ensure_atoi(char *s)
-{
-	char *endptr;
-	int result;
-	result = strtol(s, &endptr, 0);
-
-	//FIXME: check for error here
-
-	return result;
-}
-
-xlogfilter_identify_system(PGconn *mc)
-{
-	PGresult *result = NULL;
-	char *primary_sysid;
-	TimeLineID primary_tli;
-
-	result = PQexec(mc, "IDENTIFY_SYSTEM");
-	if (PQresultStatus(result) != PGRES_TUPLES_OK)
-	{
-		PQclear(result);
-		error(PQerrorMessage(mc));
-	}
-	if (PQnfields(result) < 3 || PQntuples(result) != 1)
-	{
-		error("Invalid response");
-	}
-
-	primary_sysid = strdup(PQgetvalue(result, 0, 0));
-	primary_tli = ensure_atoi(PQgetvalue(result, 0, 1));
-
-	xf_info("System identifier: %s\n", primary_sysid);
-	xf_info("TLI: %d\n", primary_tli);
-
-	PQclear(result);
-}
-
-bool xlf_startstreaming(PGconn *mc, XLogRecPtr pos, TimeLineID tli)
-{
-	char cmd[256];
-	PGresult *res;
-
-	xf_info("Start streaming from master at %X/%X", FormatRecPtr(pos));
-
-	snprintf(cmd, sizeof(cmd),
-			"START_REPLICATION %X/%X TIMELINE %u",
-			(uint32) (pos>>32), (uint32) pos, tli);
-	res = PQexec(mc, cmd);
-
-	if (PQresultStatus(res) == PGRES_COMMAND_OK)
-	{
-		PQclear(res);
-		return false;
-	}
-	else if (PQresultStatus(res) != PGRES_COPY_BOTH)
-	{
-		PQclear(res);
-		error(PQerrorMessage(mc));
-	}
-	PQclear(res);
-	return true;
-}
-
-void
-xlf_endstreaming(PGconn *mc, TimeLineID *next_tli)
-{
-	PGresult   *res;
-	int i = 0;
-
-	if (PQputCopyEnd(mc, NULL) <= 0 || PQflush(mc))
-		error(PQerrorMessage(mc));
-
-	/*
-	 * After COPY is finished, we should receive a result set indicating the
-	 * next timeline's ID, or just CommandComplete if the server was shut
-	 * down.
-	 *
-	 * If we had not yet received CopyDone from the backend, PGRES_COPY_IN
-	 * would also be possible. However, at the moment this function is only
-	 * called after receiving CopyDone from the backend - the walreceiver
-	 * never terminates replication on its own initiative.
-	 */
-	res = PQgetResult(mc);
-	while (PQresultStatus(res) == PGRES_COPY_OUT)
-	{
-		int copyresult;
-		do {
-			char *buf;
-			copyresult = PQgetCopyData(mc, &buf, 0);
-			if (buf)
-				PQfreemem(buf);
-
-		} while (copyresult >= 0);
-		res = PQgetResult(mc);
-	}
-
-	if (PQresultStatus(res) == PGRES_TUPLES_OK)
-	{
-		/*
-		 * Read the next timeline's ID. The server also sends the timeline's
-		 * starting point, but it is ignored.
-		 */
-		if (PQnfields(res) < 2 || PQntuples(res) != 1)
-			error("unexpected result set after end-of-streaming");
-		*next_tli = ensure_atoi(PQgetvalue(res, 0, 0));
-		PQclear(res);
-
-		/* the result set should be followed by CommandComplete */
-		res = PQgetResult(mc);
-	}
-	else
-		*next_tli = 0;
-
-	if (PQresultStatus(res) != PGRES_COMMAND_OK)
-		error(PQerrorMessage(mc));
-
-	/* Verify that there are no more results */
-	res = PQgetResult(mc);
-	while (res!=NULL) {
-		xf_info("Status: %d", PQresultStatus(res));
-		res = PQgetResult(mc);
-	}
-
-	if (res != NULL)
-		error("unexpected result after CommandComplete: %s", PQerrorMessage(mc));
-
-}
-
-static char *recvBuf = NULL;
-
-/*
- * Wait until we can read WAL stream, or timeout.
- *
- * Returns true if data has become available for reading, false if timed out
- * or interrupted by signal.
- *
- * This is based on pqSocketCheck.
- */
-static bool
-libpq_select(PGconn *mc, int timeout_ms)
-{
-	int			ret;
-
-	Assert(mc != NULL);
-	if (PQsocket(mc) < 0)
-		error("socket not open");
-
-	/* We use poll(2) if available, otherwise select(2) */
-	{
-		struct pollfd input_fd;
-
-		input_fd.fd = PQsocket(mc);
-		input_fd.events = POLLIN | POLLERR;
-		input_fd.revents = 0;
-
-		ret = poll(&input_fd, 1, timeout_ms);
-	}
-
-	if (ret == 0 || (ret < 0 && errno == EINTR))
-		return false;
-	if (ret < 0)
-		error("select() failed: %m");
-	return true;
-}
-
-int
-xlf_receive(PGconn *mc, int timeout, char **buffer)
-{
-	int			rawlen;
-
-	if (recvBuf != NULL)
-		PQfreemem(recvBuf);
-	recvBuf = NULL;
-
-	/* Try to receive a CopyData message */
-	rawlen = PQgetCopyData(mc, &recvBuf, 1);
-	if (rawlen == 0)
-	{
-		/*
-		 * No data available yet. If the caller requested to block, wait for
-		 * more data to arrive.
-		 */
-		if (timeout > 0)
-		{
-			if (!libpq_select(mc, timeout))
-				return 0;
-		}
-
-		if (PQconsumeInput(mc) == 0)
-			showPQerror(mc, "could not receive data from WAL stream");
-
-		/* Now that we've consumed some input, try again */
-		rawlen = PQgetCopyData(mc, &recvBuf, 1);
-		if (rawlen == 0)
-			return 0;
-	}
-	if (rawlen == -1)			/* end-of-streaming or error */
-	{
-		PGresult   *res;
-
-		res = PQgetResult(mc);
-		if (PQresultStatus(res) == PGRES_COMMAND_OK ||
-			PQresultStatus(res) == PGRES_COPY_IN)
-		{
-			PQclear(res);
-			return -1;
-		}
-		else
-		{
-			PQclear(res);
-			showPQerror(mc, "could not receive data from WAL stream");
-		}
-	}
-	if (rawlen < -1)
-		showPQerror(mc, "could not receive data from WAL stream");
-
-	/* Return received messages to caller */
-	*buffer = recvBuf;
-	return rawlen;
-}
-
-uint64
-fromnetwork64(char *buf)
-{
-	// XXX: unaligned reads
-	uint32 h = *((uint32*) buf);
-	uint32 l = *(((uint32*) buf)+1);
-	return ((uint64)ntohl(h) << 32) | ntohl(l);
-}
-
-uint32
-fromnetwork32(char *buf)
-{
-	// XXX: unaligned read
-	return ntohl(*((uint32*) buf));
-}
-
-void
-write64(char *buf, uint64 v)
-{
-	int i;
-	for (i = 7; i>= 0; i--)
-		*buf++ = (char)(v >> i*8);
-}
-
-XLogRecPtr latestWalEnd = 0;
-TimestampTz latestSendTime = 0;
-
-typedef enum {
-	MSG_WAL_DATA,
-	MSG_KEEPALIVE
-} WalMsgType;
-
-typedef struct {
-	WalMsgType type;
-	XLogRecPtr walEnd;
-	TimestampTz sendTime;
-	bool replyRequested;
-	XLogRecPtr dataStart;
-
-	int dataPtr;
-	int dataLen;
-	int nextPageBoundary;
-
-	char *data;
-
-} ReplMessage;
-
-static void
-process_walsender_message(ReplMessage *msg)
-{
-	latestWalEnd = msg->walEnd;
-	latestSendTime = msg->sendTime;
-}
-
-/*
- * Send a message to XLOG stream.
- *
- * ereports on error.
- */
-static void
-xlf_send(PGconn *mc, const char *buffer, int nbytes)
-{
-	if (PQputCopyData(mc, buffer, nbytes) <= 0 ||
-		PQflush(mc))
-		showPQerror(mc, "could not send data to WAL stream");
-}
-
-
-xlf_send_reply(PGconn *mc, bool force, bool requestReply)
-{
-	XLogRecPtr writePtr = latestWalEnd;
-	XLogRecPtr flushPtr = latestWalEnd;
-	XLogRecPtr	applyPtr = latestWalEnd;
-	TimestampTz sendTime = latestSendTime;
-	TimestampTz now;
-	char reply_message[1+4*8+1+1];
-
-	/*
-	 * If the user doesn't want status to be reported to the master, be sure
-	 * to exit before doing anything at all.
-
-	if (!force && wal_receiver_status_interval <= 0)
-		return;*/
-
-	/* Get current timestamp. */
-	now = latestSendTime;//GetCurrentTimestamp();
-
-	/*
-	 * We can compare the write and flush positions to the last message we
-	 * sent without taking any lock, but the apply position requires a spin
-	 * lock, so we don't check that unless something else has changed or 10
-	 * seconds have passed.  This means that the apply log position will
-	 * appear, from the master's point of view, to lag slightly, but since
-	 * this is only for reporting purposes and only on idle systems, that's
-	 * probably OK.
-	 */
-	/*if (!force
-		&& writePtr == LogstreamResult.Write
-		&& flushPtr == LogstreamResult.Flush
-		&& !TimestampDifferenceExceeds(sendTime, now,
-									   wal_receiver_status_interval * 1000))
-		return;*/
-	sendTime = now;
-
-	/* Construct a new message */
-
-	//resetStringInfo(&reply_message);
-	memset(reply_message, 0, sizeof(reply_message));
-	//pq_sendbyte(&reply_message, 'r');
-	reply_message[0] = 'r';
-	//pq_sendint64(&reply_message, writePtr);
-	write64(&(reply_message[1]), writePtr);
-	//pq_sendint64(&reply_message, flushPtr);
-	write64(&(reply_message[9]), flushPtr);
-	//pq_sendint64(&reply_message, applyPtr);
-	write64(&(reply_message[17]), applyPtr);
-	//pq_sendint64(&reply_message, GetCurrentIntegerTimestamp());
-	write64(&(reply_message[25]), sendTime);
-	//pq_sendbyte(&reply_message, requestReply ? 1 : 0);
-	reply_message[33] = requestReply ? 1 : 0;
-
-	/* Send it */
-	/*elog(DEBUG2, "sending write %X/%X flush %X/%X apply %X/%X%s",
-		 (uint32) (writePtr >> 32), (uint32) writePtr,
-		 (uint32) (flushPtr >> 32), (uint32) flushPtr,
-		 (uint32) (applyPtr >> 32), (uint32) applyPtr,
-		 requestReply ? " (reply requested)" : "");*/
-
-	xf_info("Send reply: %lu %lu %lu %d\n", writePtr, flushPtr, applyPtr, requestReply);
-	xlf_send(mc, reply_message, 34);
-}
-
-void
-xlf_process_message(PGconn *mc, char *buf, size_t len,
-		ReplMessage *msg)
-{
-	switch (buf[0])
-	{
-		case 'w':
-			{
-				msg->type = MSG_WAL_DATA;
-				msg->dataStart = fromnetwork64(buf+1);
-				msg->walEnd = fromnetwork64(buf+9);
-				msg->sendTime = fromnetwork64(buf+17);
-				msg->replyRequested = 0;
-
-				msg->dataPtr = 0;
-				msg->dataLen = len - 25;
-				msg->data = buf+25;
-				msg->nextPageBoundary = ((WAL_BLOCK_SIZE - msg->dataStart) & WAL_BLOCK_MASK);
-
-				xf_info("Received %lu byte WAL block\n", len-25);
-				xf_info("   dataStart: %X/%X\n", FormatRecPtr(msg->dataStart));
-				xf_info("   walEnd: %lu\n", msg->walEnd);
-				xf_info("   sendTime: %lu\n", msg->sendTime);
-
-				process_walsender_message(msg);
-				break;
-			}
-		case 'k':
-			{
-				xf_info("Keepalive message\n");
-				msg->type = MSG_KEEPALIVE;
-				msg->walEnd = fromnetwork64(buf+1);
-				msg->sendTime = fromnetwork64(buf+9);
-				msg->replyRequested = *(buf+17);
-
-				xf_info("   walEnd: %lu\n", msg->walEnd);
-				xf_info("   sendTime: %lu\n", msg->sendTime);
-				xf_info("   replyRequested: %d\n", msg->replyRequested);
-				process_walsender_message(msg);
-
-				if (msg->replyRequested)
-					xlf_send_reply(mc, true, false);
-				break;
-			}
-	}
-}
 
 #define MAX_CONNINFO_LEN 4000
 
 Oid *
-xlf_find_tablespace_oids(XfConn conn)
+FindTablespaceOids(XfConn conn)
 {
-	PGconn* masterConn;
 	// TODO: take in other options
 	char conninfo[MAX_CONNINFO_LEN+1];
 	char *buf = conninfo;
 	char *buf_end = &(conninfo[MAX_CONNINFO_LEN]);
-	Oid *oids;
 
 	memset(conninfo, 0, sizeof(conninfo));
 
@@ -460,43 +41,9 @@ xlf_find_tablespace_oids(XfConn conn)
 	if (conn->user_name)
 		buf += snprintf(buf, buf_end - buf, "user=%s ", conn->user_name);
 
-	buf += snprintf(buf, buf_end - buf, "dbname=postgres application_name=walbouncer");//"dbname=replication replication=true application_name=walbouncer");
+	buf += snprintf(buf, buf_end - buf, "dbname=postgres application_name=walbouncer");
 
-	xf_info("Start connecting to %s\n", conninfo);
-	masterConn = PQconnectdb(conninfo);
-	if (PQstatus(masterConn) != CONNECTION_OK)
-		error(PQerrorMessage(masterConn));
-	xf_info("Connected to master\n");
-
-	{
-		PGresult *res;
-		int oidcount;
-		int i;
-
-		const char *paramValues[1] = {conn->include_tablespaces};
-		res = PQexecParams(masterConn,
-			"SELECT oid FROM pg_tablespace WHERE spcname = "
-			"ANY (string_to_array($1, ',')) "
-			"OR spcname IN ('pg_default', 'pg_global')",
-			1, NULL, paramValues,
-			NULL, NULL, 0);
-		if (PQresultStatus(res) != PGRES_TUPLES_OK)
-			error("Could not retrieve tablespaces: %s", PQerrorMessage(masterConn));
-
-		oidcount = PQntuples(res);
-		oids = xfalloc0(sizeof(Oid)*(oidcount+1));
-
-		for (i = 0; i < oidcount; i++)
-		{
-			char *oid = PQgetvalue(res, i, 0);
-			xf_info("Found tablespace oid %s %d", oid, atoi(oid));
-			oids[i] = atoi(oid);
-		}
-		PQclear(res);
-	}
-	PQfinish(masterConn);
-
-	return oids;
+	return xlf_find_tablespace_oids(conninfo, conn->include_tablespaces);
 }
 
 int
@@ -746,26 +293,16 @@ void
 ExecIdentifySystem(XfConn conn, PGconn *mc)
 {
 	// query master server, pass through data
-	PGresult *result = NULL;
 	char *primary_sysid;
 	char *primary_tli;
 	char *primary_xpos;
 	char *dbname = NULL;
 
-	result = PQexec(mc, "IDENTIFY_SYSTEM");
-	if (PQresultStatus(result) != PGRES_TUPLES_OK)
-	{
-		PQclear(result);
-		error(PQerrorMessage(mc));
-	}
-	if (PQnfields(result) < 3 || PQntuples(result) != 1)
-	{
-		error("Invalid response");
-	}
-
-	primary_sysid = strdup(PQgetvalue(result, 0, 0));
-	primary_tli = strdup(PQgetvalue(result, 0, 1));
-	primary_xpos = strdup(PQgetvalue(result, 0, 2));
+	if (!xlf_identify_system(mc,
+			&primary_sysid,
+			&primary_tli,
+			&primary_xpos))
+		error("Identify system failed.");
 
 	xf_info("System identifier: %s\n", primary_sysid);
 	xf_info("TLI: %s\n", primary_tli);
@@ -837,7 +374,9 @@ ExecIdentifySystem(XfConn conn, PGconn *mc)
 
 	ConnEndMessage(conn);
 
-	PQclear(result);
+	xffree(primary_sysid);
+	xffree(primary_tli);
+	xffree(primary_xpos);
 }
 
 void
@@ -1384,7 +923,7 @@ ProcessWalDataBlock(ReplMessage* msg, FilterData* fl, XLogRecPtr *retryPos)
 			if (header->xlp_info & XLP_LONG_HEADER)
 				ReplMessageConsume(msg, SizeOfXLogLongPHD - SizeOfXLogShortPHD);
 
-			msg->nextPageBoundary += WAL_BLOCK_SIZE;
+			msg->nextPageBoundary += XLOG_BLCKSZ;
 
 			switch (fl->state)
 			{
@@ -1406,6 +945,7 @@ ProcessWalDataBlock(ReplMessage* msg, FilterData* fl, XLogRecPtr *retryPos)
 				}
 				fl->synchronized = true;
 				FilterBufferRecordHeader(fl, msg);
+				/* no break */
 				// fall through to buffering
 			case FS_BUFFER_RECORD:
 			case FS_BUFFER_FILENODE:
@@ -1435,6 +975,7 @@ ProcessWalDataBlock(ReplMessage* msg, FilterData* fl, XLogRecPtr *retryPos)
 				fl->synchronized = true;
 				FilterBufferRecordHeader(fl, msg);
 				// Fall through to the correct handler
+				/* no break */
 			case FS_BUFFER_RECORD:
 				if (fl->dataNeeded <= amountAvailable)
 					ReplMessageBuffer(fl, msg, fl->dataNeeded);
@@ -1603,7 +1144,7 @@ ExecStartPhysical2(XfConn conn, PGconn *mc, ReplicationCommand *cmd)
 	if (conn->include_tablespaces)
 	{
 		xf_info("Including tablespaces: %s", conn->include_tablespaces);
-		fl.include_tablespaces = xlf_find_tablespace_oids(conn);
+		fl.include_tablespaces = FindTablespaceOids(conn);
 	} else {
 		fl.include_tablespaces = NULL;
 	}
@@ -1814,9 +1355,7 @@ OpenConnectionToMaster(XfConn conn)
 	buf += snprintf(buf, buf_end - buf, "dbname=replication replication=true application_name=walbouncer");
 
 	xf_info("Start connecting to %s\n", conninfo);
-	masterConn = PQconnectdb(conninfo);
-	if (PQstatus(masterConn) != CONNECTION_OK)
-		error(PQerrorMessage(masterConn));
+	masterConn = xlf_open_connection(conninfo);
 	xf_info("Connected to master\n");
 	return masterConn;
 }

@@ -3,7 +3,7 @@ all: xlogfilter
 pglibdir = $(shell pg_config --libdir)
 pgincludedir = $(shell pg_config --includedir)
 
-objects = main.o xfsocket.o xfutils.o parser/repl_gram.o parser/scansup.o parser/stringinfo.o parser/gram_support.o pg_crc.o  
+objects = main.o xfsocket.o xfutils.o parser/repl_gram.o parser/scansup.o parser/stringinfo.o parser/gram_support.o pg_crc.o wbmasterconn.o  
 
 xlogfilter: $(objects)
 	gcc -o xlogfilter $(objects) -L$(pglibdir) -lpq

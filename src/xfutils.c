@@ -2,6 +2,8 @@
 #include <string.h>
 #include <stdarg.h>
 
+/* Error reporting functions */
+
 void error(const char *message, ...)
 {
 	va_list args;
@@ -17,6 +19,8 @@ void showPQerror(PGconn *mc, char *message)
 	printf("%s: %s\n", message, PQerrorMessage(mc));
 	exit(1);
 }
+
+/* Memory allocation functions */
 
 void *xfalloc(size_t amount)
 {
@@ -51,4 +55,42 @@ void *rexfalloc(void *ptr, size_t amount)
 void xffree(void *ptr)
 {
 	free(ptr);
+}
+
+/* Miscellaneous utility functions */
+
+int
+ensure_atoi(char *s)
+{
+	char *endptr;
+	int result;
+	result = strtol(s, &endptr, 0);
+
+	//FIXME: check for error here
+
+	return result;
+}
+
+uint64
+fromnetwork64(char *buf)
+{
+	// XXX: unaligned reads
+	uint32 h = *((uint32*) buf);
+	uint32 l = *(((uint32*) buf)+1);
+	return ((uint64)ntohl(h) << 32) | ntohl(l);
+}
+
+uint32
+fromnetwork32(char *buf)
+{
+	// XXX: unaligned read
+	return ntohl(*((uint32*) buf));
+}
+
+void
+write64(char *buf, uint64 v)
+{
+	int i;
+	for (i = 7; i>= 0; i--)
+		*buf++ = (char)(v >> i*8);
 }

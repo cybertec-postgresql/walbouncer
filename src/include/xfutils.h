@@ -28,4 +28,10 @@ void xffree(void *ptr);
 
 #define FormatRecPtr(x) (uint32)((x) >> 32), (uint32) (x)
 
+
+int ensure_atoi(char *s);
+uint64 fromnetwork64(char *buf);
+uint32 fromnetwork32(char *buf);
+void write64(char *buf, uint64 v);
+
 #endif

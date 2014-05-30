@@ -1,2 +1,3 @@
+#define XLOG_BLCKSZ 8192
 #define MAXIMUM_ALIGNOF 8
 #define XLOG_SEG_SIZE (16 * 1024 * 1024)
