@@ -7,8 +7,6 @@
 #include <getopt.h>
 
 
-#include "libpq-fe.h"
-
 #include "xfglobals.h"
 #include "xfutils.h"
 #include "xfsocket.h"
@@ -290,7 +288,7 @@ ReadCommand(XfConn conn, XfCommand *cmd)
 #define INT4OID 23
 
 void
-ExecIdentifySystem(XfConn conn, PGconn *mc)
+ExecIdentifySystem(XfConn conn, MasterConn *master)
 {
 	// query master server, pass through data
 	char *primary_sysid;
@@ -298,7 +296,7 @@ ExecIdentifySystem(XfConn conn, PGconn *mc)
 	char *primary_xpos;
 	char *dbname = NULL;
 
-	if (!xlf_identify_system(mc,
+	if (!xlf_identify_system(master,
 			&primary_sysid,
 			&primary_tli,
 			&primary_xpos))
@@ -562,13 +560,13 @@ void SendCopyBothResponse(XfConn conn)
 }
 
 void
-ExecStartPhysical(XfConn conn, PGconn *mc, ReplicationCommand *cmd)
+ExecStartPhysical(XfConn conn, MasterConn *master, ReplicationCommand *cmd)
 {
 	TimeLineID next_tli;
 	ReplMessage msg;
 
 	xf_info("Starting streaming from %x/%x on TLI %u", (uint32) (cmd->startpoint>>32), (uint32) cmd->startpoint, cmd->timeline);
-	xlf_startstreaming(mc, cmd->startpoint, cmd->timeline);
+	xlf_startstreaming(master, cmd->startpoint, cmd->timeline);
 
 	/* Send a CopyBothResponse message, and start streaming */
 	SendCopyBothResponse(conn);
@@ -579,14 +577,14 @@ ExecStartPhysical(XfConn conn, PGconn *mc, ReplicationCommand *cmd)
 			char *buf;
 			int	len;
 			XfProcessRepliesIfAny(conn);
-			len = xlf_receive(mc, NAPTIME, &buf);
+			len = xlf_receive(master, NAPTIME, &buf);
 			if (len != 0)
 			{
 				for (;;)
 				{
 					if (len > 0)
 					{
-						xlf_process_message(mc, buf, len, &msg);
+						xlf_process_message(master, buf, len, &msg);
 						if (buf[0] == 'w')
 						{
 							//XfSendWALRecord(conn, buf, len, msg->walEnd, msg->sendTime);
@@ -599,7 +597,7 @@ ExecStartPhysical(XfConn conn, PGconn *mc, ReplicationCommand *cmd)
 						endofwal = true;
 						break;
 					}
-					len = xlf_receive(mc, 0, &buf);
+					len = xlf_receive(master, 0, &buf);
 				}
 			}
 			else
@@ -612,7 +610,7 @@ ExecStartPhysical(XfConn conn, PGconn *mc, ReplicationCommand *cmd)
 
 	XfSendEndOfWal(conn);
 
-	xlf_endstreaming(mc, &next_tli);
+	xlf_endstreaming(master, &next_tli);
 }
 
 static bool
@@ -1120,7 +1118,7 @@ ProcessWalDataBlock(ReplMessage* msg, FilterData* fl, XLogRecPtr *retryPos)
 }
 
 void
-ExecStartPhysical2(XfConn conn, PGconn *mc, ReplicationCommand *cmd)
+ExecStartPhysical2(XfConn conn, MasterConn *master, ReplicationCommand *cmd)
 {
 	bool endofwal = false;
 	char *buf;
@@ -1152,7 +1150,7 @@ ExecStartPhysical2(XfConn conn, PGconn *mc, ReplicationCommand *cmd)
 
 	startReceivingFrom = cmd->startpoint;
 again:
-	xlf_startstreaming(mc, startReceivingFrom, cmd->timeline);
+	xlf_startstreaming(master, startReceivingFrom, cmd->timeline);
 
 	SendCopyBothResponse(conn);
 
@@ -1160,21 +1158,21 @@ again:
 	{
 		int len;
 		XfProcessRepliesIfAny(conn);
-		len = xlf_receive(mc, NAPTIME, &buf);
+		len = xlf_receive(master, NAPTIME, &buf);
 		if (len != 0)
 		{
 			for (;;)
 			{
 				if (len > 0)
 				{
-					xlf_process_message(mc, buf, len, msg);
+					xlf_process_message(master, buf, len, msg);
 					if (msg->type == MSG_WAL_DATA)
 					{
 						XLogRecPtr restartPos;
 						if (!ProcessWalDataBlock(msg, &fl, &restartPos))
 						{
 							TimeLineID tli;
-							xlf_endstreaming(mc, &tli);
+							xlf_endstreaming(master, &tli);
 							Assert(tli == 0);
 							startReceivingFrom = restartPos;
 							goto again;
@@ -1189,7 +1187,7 @@ again:
 					endofwal = true;
 					break;
 				}
-				len = xlf_receive(mc, 0, &buf);
+				len = xlf_receive(master, 0, &buf);
 			}
 		}
 		else
@@ -1198,7 +1196,7 @@ again:
 	}
 	{
 		TimeLineID tli;
-		xlf_endstreaming(mc, &tli);
+		xlf_endstreaming(master, &tli);
 	}
 
 	// query master server for data
@@ -1233,7 +1231,7 @@ again:
 	xffree(msg);
 }
 
-ExecCommand(XfConn conn, PGconn *mc, char *query_string)
+ExecCommand(XfConn conn, MasterConn *master, char *query_string)
 {
 	int parse_rc;
 	ReplicationCommand *cmd;
@@ -1251,7 +1249,7 @@ ExecCommand(XfConn conn, PGconn *mc, char *query_string)
 	switch (cmd->command)
 	{
 		case REPL_IDENTIFY_SYSTEM:
-			ExecIdentifySystem(conn, mc);
+			ExecIdentifySystem(conn, master);
 			break;
 		case REPL_BASE_BACKUP:
 		case REPL_CREATE_SLOT:
@@ -1259,7 +1257,7 @@ ExecCommand(XfConn conn, PGconn *mc, char *query_string)
 			error("Command not supported");
 			break;
 		case REPL_START_PHYSICAL:
-			ExecStartPhysical2(conn, mc, cmd);
+			ExecStartPhysical2(conn, master, cmd);
 			break;
 		case REPL_START_LOGICAL:
 			error("Command not supported");
@@ -1304,9 +1302,9 @@ void XfPerformAuthentication(XfConn conn)
 }
 
 static void
-ReportGuc(XfConn conn, PGconn* mc, char *name)
+ReportGuc(XfConn conn, MasterConn* master, char *name)
 {
-	const char *value = PQparameterStatus(mc, name);
+	const char *value = xlf_parameter_status(master, name);
 	if (!value)
 		return;
 	ConnBeginMessage(conn, 'S');
@@ -1316,26 +1314,26 @@ ReportGuc(XfConn conn, PGconn* mc, char *name)
 }
 
 void
-BeginReportingGUCOptions(XfConn conn, PGconn* mc)
+BeginReportingGUCOptions(XfConn conn, MasterConn* master)
 {
 	//conn->sendBufMsgLenPtr
-	 ReportGuc(conn, mc, "server_version");
-	 ReportGuc(conn, mc, "server_encoding");
-	 ReportGuc(conn, mc, "client_encoding");
-	 ReportGuc(conn, mc, "application_name");
-	 ReportGuc(conn, mc, "is_superuser");
-	 ReportGuc(conn, mc, "session_authorization");
-	 ReportGuc(conn, mc, "DateStyle");
-	 ReportGuc(conn, mc, "IntervalStyle");
-	 ReportGuc(conn, mc, "TimeZone");
-	 ReportGuc(conn, mc, "integer_datetimes");
-	 ReportGuc(conn, mc, "standard_conforming_strings");
+	 ReportGuc(conn, master, "server_version");
+	 ReportGuc(conn, master, "server_encoding");
+	 ReportGuc(conn, master, "client_encoding");
+	 ReportGuc(conn, master, "application_name");
+	 ReportGuc(conn, master, "is_superuser");
+	 ReportGuc(conn, master, "session_authorization");
+	 ReportGuc(conn, master, "DateStyle");
+	 ReportGuc(conn, master, "IntervalStyle");
+	 ReportGuc(conn, master, "TimeZone");
+	 ReportGuc(conn, master, "integer_datetimes");
+	 ReportGuc(conn, master, "standard_conforming_strings");
 }
 
-PGconn*
+MasterConn*
 OpenConnectionToMaster(XfConn conn)
 {
-	PGconn* masterConn;
+	MasterConn* master;
 	char conninfo[MAX_CONNINFO_LEN+1];
 	char *buf = conninfo;
 	char *buf_end = &(conninfo[MAX_CONNINFO_LEN]);
@@ -1355,9 +1353,9 @@ OpenConnectionToMaster(XfConn conn)
 	buf += snprintf(buf, buf_end - buf, "dbname=replication replication=true application_name=walbouncer");
 
 	xf_info("Start connecting to %s\n", conninfo);
-	masterConn = xlf_open_connection(conninfo);
+	master = xlf_open_connection(conninfo);
 	xf_info("Connected to master\n");
-	return masterConn;
+	return master;
 }
 
 
@@ -1366,9 +1364,9 @@ XfCommandLoop(XfConn conn)
 {
 	int firstchar;
 	bool send_ready_for_query = true;
-	PGconn* mc = OpenConnectionToMaster(conn);
+	MasterConn* master = OpenConnectionToMaster(conn);
 
-	BeginReportingGUCOptions(conn, mc);
+	BeginReportingGUCOptions(conn, master);
 
 	// Cancel message
 	ConnBeginMessage(conn, 'K');
@@ -1396,7 +1394,7 @@ XfCommandLoop(XfConn conn)
 		{
 			case 'Q':
 				{
-					ExecCommand(conn, mc, cmd.msg->data);
+					ExecCommand(conn, master, cmd.msg->data);
 					send_ready_for_query = true;
 
 					/*char *query_string = pq_getmsgstgring(msg);

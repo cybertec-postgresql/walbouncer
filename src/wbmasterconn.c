@@ -7,28 +7,42 @@
 #include "xfutils.h"
 #include "xf_pg_config.h"
 
-static bool libpq_select(PGconn *mc, int timeout_ms);
+#include "libpq-fe.h"
+
+static bool libpq_select(MasterConn *master, int timeout_ms);
 static void process_walsender_message(ReplMessage *msg);
-static void xlf_send(PGconn *mc, const char *buffer, int nbytes);
-static void xlf_send_reply(PGconn *mc, bool force, bool requestReply);
+static void xlf_send(MasterConn *master, const char *buffer, int nbytes);
+static void xlf_send_reply(MasterConn *master, bool force, bool requestReply);
+
+struct MasterConn {
+	PGconn* conn;
+
+};
 
 // TODO: move these to a structure
 static char *recvBuf = NULL;
 static XLogRecPtr latestWalEnd = 0;
 static TimestampTz latestSendTime = 0;
 
-PGconn* xlf_open_connection(const char *conninfo)
+MasterConn* xlf_open_connection(const char *conninfo)
 {
-	PGconn* masterConn = PQconnectdb(conninfo);
-	if (PQstatus(masterConn) != CONNECTION_OK)
-		error(PQerrorMessage(masterConn));
+	MasterConn* master = xfalloc(sizeof(MasterConn));
+	master->conn = PQconnectdb(conninfo);
+	if (PQstatus(master->conn) != CONNECTION_OK)
+		error(PQerrorMessage(master->conn));
 
-	return masterConn;
+	return master;
 }
 
-
-bool xlf_startstreaming(PGconn *mc, XLogRecPtr pos, TimeLineID tli)
+void xlf_close_connection(MasterConn *master)
 {
+	PQfinish(master->conn);
+	xffree(master);
+}
+
+bool xlf_startstreaming(MasterConn *master, XLogRecPtr pos, TimeLineID tli)
+{
+	PGconn *mc = master->conn;
 	char cmd[256];
 	PGresult *res;
 
@@ -54,8 +68,9 @@ bool xlf_startstreaming(PGconn *mc, XLogRecPtr pos, TimeLineID tli)
 }
 
 void
-xlf_endstreaming(PGconn *mc, TimeLineID *next_tli)
+xlf_endstreaming(MasterConn *master, TimeLineID *next_tli)
 {
+	PGconn *mc = master->conn;
 	PGresult   *res;
 	int i = 0;
 
@@ -127,8 +142,9 @@ xlf_endstreaming(PGconn *mc, TimeLineID *next_tli)
  * This is based on pqSocketCheck.
  */
 static bool
-libpq_select(PGconn *mc, int timeout_ms)
+libpq_select(MasterConn *master, int timeout_ms)
 {
+	PGconn *mc = master->conn;
 	int			ret;
 
 	Assert(mc != NULL);
@@ -154,8 +170,9 @@ libpq_select(PGconn *mc, int timeout_ms)
 }
 
 int
-xlf_receive(PGconn *mc, int timeout, char **buffer)
+xlf_receive(MasterConn *master, int timeout, char **buffer)
 {
+	PGconn *mc = master->conn;
 	int			rawlen;
 
 	if (recvBuf != NULL)
@@ -172,7 +189,7 @@ xlf_receive(PGconn *mc, int timeout, char **buffer)
 		 */
 		if (timeout > 0)
 		{
-			if (!libpq_select(mc, timeout))
+			if (!libpq_select(master, timeout))
 				return 0;
 		}
 
@@ -222,16 +239,18 @@ process_walsender_message(ReplMessage *msg)
  * ereports on error.
  */
 static void
-xlf_send(PGconn *mc, const char *buffer, int nbytes)
+xlf_send(MasterConn *master, const char *buffer, int nbytes)
 {
+	PGconn *mc = master->conn;
 	if (PQputCopyData(mc, buffer, nbytes) <= 0 ||
 		PQflush(mc))
 		showPQerror(mc, "could not send data to WAL stream");
 }
 
 static void
-xlf_send_reply(PGconn *mc, bool force, bool requestReply)
+xlf_send_reply(MasterConn *master, bool force, bool requestReply)
 {
+	PGconn *mc = master->conn;
 	XLogRecPtr writePtr = latestWalEnd;
 	XLogRecPtr flushPtr = latestWalEnd;
 	XLogRecPtr	applyPtr = latestWalEnd;
@@ -291,13 +310,14 @@ xlf_send_reply(PGconn *mc, bool force, bool requestReply)
 		 requestReply ? " (reply requested)" : "");*/
 
 	xf_info("Send reply: %lu %lu %lu %d\n", writePtr, flushPtr, applyPtr, requestReply);
-	xlf_send(mc, reply_message, 34);
+	xlf_send(master, reply_message, 34);
 }
 
 void
-xlf_process_message(PGconn *mc, char *buf, size_t len,
+xlf_process_message(MasterConn *master, char *buf, size_t len,
 		ReplMessage *msg)
 {
+	PGconn *mc = master->conn;
 	switch (buf[0])
 	{
 		case 'w':
@@ -335,16 +355,18 @@ xlf_process_message(PGconn *mc, char *buf, size_t len,
 				process_walsender_message(msg);
 
 				if (msg->replyRequested)
-					xlf_send_reply(mc, true, false);
+					xlf_send_reply(master, true, false);
 				break;
 			}
 	}
 }
 
 bool
-xlf_identify_system(PGconn* mc,
+xlf_identify_system(MasterConn* master,
 		char** primary_sysid, char** primary_tli, char** primary_xpos)
 {
+	PGconn *mc = master->conn;
+
 	PGresult *result = PQexec(mc, "IDENTIFY_SYSTEM");
 	if (PQresultStatus(result) != PGRES_TUPLES_OK)
 	{
@@ -370,21 +392,21 @@ xlf_identify_system(PGconn* mc,
 Oid *
 xlf_find_tablespace_oids(const char *conninfo, const char* tablespace_names)
 {
-	PGconn* masterConn = xlf_open_connection(conninfo);
+	MasterConn* master = xlf_open_connection(conninfo);
 	Oid *oids;
 	PGresult *res;
 	int oidcount;
 	int i;
 
 	const char *paramValues[1] = {tablespace_names};
-	res = PQexecParams(masterConn,
+	res = PQexecParams(master->conn,
 		"SELECT oid FROM pg_tablespace WHERE spcname = "
 		"ANY (string_to_array($1, ',')) "
 		"OR spcname IN ('pg_default', 'pg_global')",
 		1, NULL, paramValues,
 		NULL, NULL, 0);
 	if (PQresultStatus(res) != PGRES_TUPLES_OK)
-		error("Could not retrieve tablespaces: %s", PQerrorMessage(masterConn));
+		error("Could not retrieve tablespaces: %s", PQerrorMessage(master->conn));
 
 	oidcount = PQntuples(res);
 	oids = xfalloc0(sizeof(Oid)*(oidcount+1));
@@ -397,7 +419,13 @@ xlf_find_tablespace_oids(const char *conninfo, const char* tablespace_names)
 	}
 	PQclear(res);
 
-	PQfinish(masterConn);
+	xlf_close_connection(master);
 
 	return oids;
+}
+
+const char *
+xlf_parameter_status(MasterConn *master, char *name)
+{
+	return PQparameterStatus(master->conn, name);
 }
