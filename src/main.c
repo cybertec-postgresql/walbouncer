@@ -41,7 +41,7 @@ FindTablespaceOids(XfConn conn)
 
 	buf += snprintf(buf, buf_end - buf, "dbname=postgres application_name=walbouncer");
 
-	return xlf_find_tablespace_oids(conninfo, conn->include_tablespaces);
+	return WbMcResolveTablespaceOids(conninfo, conn->include_tablespaces);
 }
 
 int
@@ -296,7 +296,7 @@ ExecIdentifySystem(XfConn conn, MasterConn *master)
 	char *primary_xpos;
 	char *dbname = NULL;
 
-	if (!xlf_identify_system(master,
+	if (!WbMcIdentifySystem(master,
 			&primary_sysid,
 			&primary_tli,
 			&primary_xpos))
@@ -566,7 +566,7 @@ ExecStartPhysical(XfConn conn, MasterConn *master, ReplicationCommand *cmd)
 	ReplMessage msg;
 
 	xf_info("Starting streaming from %x/%x on TLI %u", (uint32) (cmd->startpoint>>32), (uint32) cmd->startpoint, cmd->timeline);
-	xlf_startstreaming(master, cmd->startpoint, cmd->timeline);
+	WbMcStartStreaming(master, cmd->startpoint, cmd->timeline);
 
 	/* Send a CopyBothResponse message, and start streaming */
 	SendCopyBothResponse(conn);
@@ -577,14 +577,14 @@ ExecStartPhysical(XfConn conn, MasterConn *master, ReplicationCommand *cmd)
 			char *buf;
 			int	len;
 			XfProcessRepliesIfAny(conn);
-			len = xlf_receive(master, NAPTIME, &buf);
+			len = WbMcReceiveWal(master, NAPTIME, &buf);
 			if (len != 0)
 			{
 				for (;;)
 				{
 					if (len > 0)
 					{
-						xlf_process_message(master, buf, len, &msg);
+						WbMcProcessMessage(master, buf, len, &msg);
 						if (buf[0] == 'w')
 						{
 							//XfSendWALRecord(conn, buf, len, msg->walEnd, msg->sendTime);
@@ -597,7 +597,7 @@ ExecStartPhysical(XfConn conn, MasterConn *master, ReplicationCommand *cmd)
 						endofwal = true;
 						break;
 					}
-					len = xlf_receive(master, 0, &buf);
+					len = WbMcReceiveWal(master, 0, &buf);
 				}
 			}
 			else
@@ -610,7 +610,7 @@ ExecStartPhysical(XfConn conn, MasterConn *master, ReplicationCommand *cmd)
 
 	XfSendEndOfWal(conn);
 
-	xlf_endstreaming(master, &next_tli);
+	WbMcEndStreaming(master, &next_tli);
 }
 
 static bool
@@ -1150,7 +1150,7 @@ ExecStartPhysical2(XfConn conn, MasterConn *master, ReplicationCommand *cmd)
 
 	startReceivingFrom = cmd->startpoint;
 again:
-	xlf_startstreaming(master, startReceivingFrom, cmd->timeline);
+	WbMcStartStreaming(master, startReceivingFrom, cmd->timeline);
 
 	SendCopyBothResponse(conn);
 
@@ -1158,21 +1158,21 @@ again:
 	{
 		int len;
 		XfProcessRepliesIfAny(conn);
-		len = xlf_receive(master, NAPTIME, &buf);
+		len = WbMcReceiveWal(master, NAPTIME, &buf);
 		if (len != 0)
 		{
 			for (;;)
 			{
 				if (len > 0)
 				{
-					xlf_process_message(master, buf, len, msg);
+					WbMcProcessMessage(master, buf, len, msg);
 					if (msg->type == MSG_WAL_DATA)
 					{
 						XLogRecPtr restartPos;
 						if (!ProcessWalDataBlock(msg, &fl, &restartPos))
 						{
 							TimeLineID tli;
-							xlf_endstreaming(master, &tli);
+							WbMcEndStreaming(master, &tli);
 							Assert(tli == 0);
 							startReceivingFrom = restartPos;
 							goto again;
@@ -1187,7 +1187,7 @@ again:
 					endofwal = true;
 					break;
 				}
-				len = xlf_receive(master, 0, &buf);
+				len = WbMcReceiveWal(master, 0, &buf);
 			}
 		}
 		else
@@ -1196,7 +1196,7 @@ again:
 	}
 	{
 		TimeLineID tli;
-		xlf_endstreaming(master, &tli);
+		WbMcEndStreaming(master, &tli);
 	}
 
 	// query master server for data
@@ -1304,7 +1304,7 @@ void XfPerformAuthentication(XfConn conn)
 static void
 ReportGuc(XfConn conn, MasterConn* master, char *name)
 {
-	const char *value = xlf_parameter_status(master, name);
+	const char *value = WbMcParameterStatus(master, name);
 	if (!value)
 		return;
 	ConnBeginMessage(conn, 'S');
@@ -1353,7 +1353,7 @@ OpenConnectionToMaster(XfConn conn)
 	buf += snprintf(buf, buf_end - buf, "dbname=replication replication=true application_name=walbouncer");
 
 	xf_info("Start connecting to %s\n", conninfo);
-	master = xlf_open_connection(conninfo);
+	master = WbMcOpenConnection(conninfo);
 	xf_info("Connected to master\n");
 	return master;
 }

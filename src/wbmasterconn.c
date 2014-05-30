@@ -10,9 +10,9 @@
 #include "libpq-fe.h"
 
 static bool libpq_select(MasterConn *master, int timeout_ms);
-static void process_walsender_message(MasterConn *master, ReplMessage *msg);
-static void xlf_send(MasterConn *master, const char *buffer, int nbytes);
-static void xlf_send_reply(MasterConn *master, bool force, bool requestReply);
+static void WbMcProcessWalsenderMessage(MasterConn *master, ReplMessage *msg);
+static void WbMcSend(MasterConn *master, const char *buffer, int nbytes);
+static void WbMcSendReply(MasterConn *master, bool force, bool requestReply);
 
 struct MasterConn {
 	PGconn* conn;
@@ -21,7 +21,8 @@ struct MasterConn {
 	TimestampTz latestSendTime;
 };
 
-MasterConn* xlf_open_connection(const char *conninfo)
+MasterConn*
+WbMcOpenConnection(const char *conninfo)
 {
 	MasterConn* master = xfalloc0(sizeof(MasterConn));
 	master->conn = PQconnectdb(conninfo);
@@ -31,13 +32,15 @@ MasterConn* xlf_open_connection(const char *conninfo)
 	return master;
 }
 
-void xlf_close_connection(MasterConn *master)
+void
+WbMcCloseConnection(MasterConn *master)
 {
 	PQfinish(master->conn);
 	xffree(master);
 }
 
-bool xlf_startstreaming(MasterConn *master, XLogRecPtr pos, TimeLineID tli)
+bool
+WbMcStartStreaming(MasterConn *master, XLogRecPtr pos, TimeLineID tli)
 {
 	PGconn *mc = master->conn;
 	char cmd[256];
@@ -65,7 +68,7 @@ bool xlf_startstreaming(MasterConn *master, XLogRecPtr pos, TimeLineID tli)
 }
 
 void
-xlf_endstreaming(MasterConn *master, TimeLineID *next_tli)
+WbMcEndStreaming(MasterConn *master, TimeLineID *next_tli)
 {
 	PGconn *mc = master->conn;
 	PGresult   *res;
@@ -167,7 +170,7 @@ libpq_select(MasterConn *master, int timeout_ms)
 }
 
 int
-xlf_receive(MasterConn *master, int timeout, char **buffer)
+WbMcReceiveWal(MasterConn *master, int timeout, char **buffer)
 {
 	PGconn *mc = master->conn;
 	int			rawlen;
@@ -224,7 +227,7 @@ xlf_receive(MasterConn *master, int timeout, char **buffer)
 }
 
 static void
-process_walsender_message(MasterConn *master, ReplMessage *msg)
+WbMcProcessWalsenderMessage(MasterConn *master, ReplMessage *msg)
 {
 	master->latestWalEnd = msg->walEnd;
 	master->latestSendTime = msg->sendTime;
@@ -236,7 +239,7 @@ process_walsender_message(MasterConn *master, ReplMessage *msg)
  * ereports on error.
  */
 static void
-xlf_send(MasterConn *master, const char *buffer, int nbytes)
+WbMcSend(MasterConn *master, const char *buffer, int nbytes)
 {
 	PGconn *mc = master->conn;
 	if (PQputCopyData(mc, buffer, nbytes) <= 0 ||
@@ -245,7 +248,7 @@ xlf_send(MasterConn *master, const char *buffer, int nbytes)
 }
 
 static void
-xlf_send_reply(MasterConn *master, bool force, bool requestReply)
+WbMcSendReply(MasterConn *master, bool force, bool requestReply)
 {
 	PGconn *mc = master->conn;
 	XLogRecPtr writePtr = master->latestWalEnd;
@@ -307,11 +310,11 @@ xlf_send_reply(MasterConn *master, bool force, bool requestReply)
 		 requestReply ? " (reply requested)" : "");*/
 
 	xf_info("Send reply: %lu %lu %lu %d\n", writePtr, flushPtr, applyPtr, requestReply);
-	xlf_send(master, reply_message, 34);
+	WbMcSend(master, reply_message, 34);
 }
 
 void
-xlf_process_message(MasterConn *master, char *buf, size_t len,
+WbMcProcessMessage(MasterConn *master, char *buf, size_t len,
 		ReplMessage *msg)
 {
 	PGconn *mc = master->conn;
@@ -335,7 +338,7 @@ xlf_process_message(MasterConn *master, char *buf, size_t len,
 				xf_info("   walEnd: %lu\n", msg->walEnd);
 				xf_info("   sendTime: %lu\n", msg->sendTime);
 
-				process_walsender_message(master, msg);
+				WbMcProcessWalsenderMessage(master, msg);
 				break;
 			}
 		case 'k':
@@ -349,17 +352,17 @@ xlf_process_message(MasterConn *master, char *buf, size_t len,
 				xf_info("   walEnd: %lu\n", msg->walEnd);
 				xf_info("   sendTime: %lu\n", msg->sendTime);
 				xf_info("   replyRequested: %d\n", msg->replyRequested);
-				process_walsender_message(master, msg);
+				WbMcProcessWalsenderMessage(master, msg);
 
 				if (msg->replyRequested)
-					xlf_send_reply(master, true, false);
+					WbMcSendReply(master, true, false);
 				break;
 			}
 	}
 }
 
 bool
-xlf_identify_system(MasterConn* master,
+WbMcIdentifySystem(MasterConn* master,
 		char** primary_sysid, char** primary_tli, char** primary_xpos)
 {
 	PGconn *mc = master->conn;
@@ -387,9 +390,9 @@ xlf_identify_system(MasterConn* master,
 }
 
 Oid *
-xlf_find_tablespace_oids(const char *conninfo, const char* tablespace_names)
+WbMcResolveTablespaceOids(const char *conninfo, const char* tablespace_names)
 {
-	MasterConn* master = xlf_open_connection(conninfo);
+	MasterConn* master = WbMcOpenConnection(conninfo);
 	Oid *oids;
 	PGresult *res;
 	int oidcount;
@@ -416,13 +419,13 @@ xlf_find_tablespace_oids(const char *conninfo, const char* tablespace_names)
 	}
 	PQclear(res);
 
-	xlf_close_connection(master);
+	WbMcCloseConnection(master);
 
 	return oids;
 }
 
 const char *
-xlf_parameter_status(MasterConn *master, char *name)
+WbMcParameterStatus(MasterConn *master, char *name)
 {
 	return PQparameterStatus(master->conn, name);
 }

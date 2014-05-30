@@ -25,12 +25,12 @@ typedef struct {
 
 typedef struct MasterConn MasterConn;
 
-MasterConn* xlf_open_connection(const char *conninfo);
-bool xlf_startstreaming(MasterConn *master, XLogRecPtr pos, TimeLineID tli);
-void xlf_endstreaming(MasterConn *master, TimeLineID *next_tli);
-void xlf_process_message(MasterConn *master, char *buf, size_t len, ReplMessage *msg);
-bool xlf_identify_system(MasterConn* master,
+MasterConn* WbMcOpenConnection(const char *conninfo);
+bool WbMcStartStreaming(MasterConn *master, XLogRecPtr pos, TimeLineID tli);
+void WbMcEndStreaming(MasterConn *master, TimeLineID *next_tli);
+void WbMcProcessMessage(MasterConn *master, char *buf, size_t len, ReplMessage *msg);
+bool WbMcIdentifySystem(MasterConn* master,
 		char** primary_sysid, char** primary_tli, char** primary_xpos);
-Oid * xlf_find_tablespace_oids(const char *conninfo, const char* tablespace_names);
-const char *xlf_parameter_status(MasterConn *master, char *name);
+Oid * WbMcResolveTablespaceOids(const char *conninfo, const char* tablespace_names);
+const char *WbMcParameterStatus(MasterConn *master, char *name);
 #endif
