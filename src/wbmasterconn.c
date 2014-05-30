@@ -10,23 +10,20 @@
 #include "libpq-fe.h"
 
 static bool libpq_select(MasterConn *master, int timeout_ms);
-static void process_walsender_message(ReplMessage *msg);
+static void process_walsender_message(MasterConn *master, ReplMessage *msg);
 static void xlf_send(MasterConn *master, const char *buffer, int nbytes);
 static void xlf_send_reply(MasterConn *master, bool force, bool requestReply);
 
 struct MasterConn {
 	PGconn* conn;
-
+	char* recvBuf;
+	XLogRecPtr latestWalEnd;
+	TimestampTz latestSendTime;
 };
-
-// TODO: move these to a structure
-static char *recvBuf = NULL;
-static XLogRecPtr latestWalEnd = 0;
-static TimestampTz latestSendTime = 0;
 
 MasterConn* xlf_open_connection(const char *conninfo)
 {
-	MasterConn* master = xfalloc(sizeof(MasterConn));
+	MasterConn* master = xfalloc0(sizeof(MasterConn));
 	master->conn = PQconnectdb(conninfo);
 	if (PQstatus(master->conn) != CONNECTION_OK)
 		error(PQerrorMessage(master->conn));
@@ -175,12 +172,12 @@ xlf_receive(MasterConn *master, int timeout, char **buffer)
 	PGconn *mc = master->conn;
 	int			rawlen;
 
-	if (recvBuf != NULL)
-		PQfreemem(recvBuf);
-	recvBuf = NULL;
+	if (master->recvBuf != NULL)
+		PQfreemem(master->recvBuf);
+	master->recvBuf = NULL;
 
 	/* Try to receive a CopyData message */
-	rawlen = PQgetCopyData(mc, &recvBuf, 1);
+	rawlen = PQgetCopyData(mc, &(master->recvBuf), 1);
 	if (rawlen == 0)
 	{
 		/*
@@ -197,7 +194,7 @@ xlf_receive(MasterConn *master, int timeout, char **buffer)
 			showPQerror(mc, "could not receive data from WAL stream");
 
 		/* Now that we've consumed some input, try again */
-		rawlen = PQgetCopyData(mc, &recvBuf, 1);
+		rawlen = PQgetCopyData(mc, &(master->recvBuf), 1);
 		if (rawlen == 0)
 			return 0;
 	}
@@ -222,15 +219,15 @@ xlf_receive(MasterConn *master, int timeout, char **buffer)
 		showPQerror(mc, "could not receive data from WAL stream");
 
 	/* Return received messages to caller */
-	*buffer = recvBuf;
+	*buffer = master->recvBuf;
 	return rawlen;
 }
 
 static void
-process_walsender_message(ReplMessage *msg)
+process_walsender_message(MasterConn *master, ReplMessage *msg)
 {
-	latestWalEnd = msg->walEnd;
-	latestSendTime = msg->sendTime;
+	master->latestWalEnd = msg->walEnd;
+	master->latestSendTime = msg->sendTime;
 }
 
 /*
@@ -251,10 +248,10 @@ static void
 xlf_send_reply(MasterConn *master, bool force, bool requestReply)
 {
 	PGconn *mc = master->conn;
-	XLogRecPtr writePtr = latestWalEnd;
-	XLogRecPtr flushPtr = latestWalEnd;
-	XLogRecPtr	applyPtr = latestWalEnd;
-	TimestampTz sendTime = latestSendTime;
+	XLogRecPtr writePtr = master->latestWalEnd;
+	XLogRecPtr flushPtr = master->latestWalEnd;
+	XLogRecPtr	applyPtr = master->latestWalEnd;
+	TimestampTz sendTime = master->latestSendTime;
 	TimestampTz now;
 	char reply_message[1+4*8+1+1];
 
@@ -266,7 +263,7 @@ xlf_send_reply(MasterConn *master, bool force, bool requestReply)
 		return;*/
 
 	/* Get current timestamp. */
-	now = latestSendTime;//GetCurrentTimestamp();
+	now = master->latestSendTime;//GetCurrentTimestamp();
 
 	/*
 	 * We can compare the write and flush positions to the last message we
@@ -338,7 +335,7 @@ xlf_process_message(MasterConn *master, char *buf, size_t len,
 				xf_info("   walEnd: %lu\n", msg->walEnd);
 				xf_info("   sendTime: %lu\n", msg->sendTime);
 
-				process_walsender_message(msg);
+				process_walsender_message(master, msg);
 				break;
 			}
 		case 'k':
@@ -352,7 +349,7 @@ xlf_process_message(MasterConn *master, char *buf, size_t len,
 				xf_info("   walEnd: %lu\n", msg->walEnd);
 				xf_info("   sendTime: %lu\n", msg->sendTime);
 				xf_info("   replyRequested: %d\n", msg->replyRequested);
-				process_walsender_message(msg);
+				process_walsender_message(master, msg);
 
 				if (msg->replyRequested)
 					xlf_send_reply(master, true, false);
