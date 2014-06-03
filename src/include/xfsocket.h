@@ -38,7 +38,8 @@ typedef struct {
 	// Sending state
 	XLogRecPtr sentPtr;
 	TimestampTz lastSend;
-
+	bool copyDoneSent;
+	bool copyDoneReceived;
 } XfPortStruct;
 typedef XfPortStruct* XfConn;
 

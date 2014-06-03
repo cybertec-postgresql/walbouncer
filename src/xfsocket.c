@@ -77,6 +77,8 @@ ConnCreate(XfSocket server)
 
 	conn->sentPtr = 0;
 	conn->lastSend = 0;
+	conn->copyDoneSent = false;
+	conn->copyDoneReceived = false;
 
 	return conn;
 }

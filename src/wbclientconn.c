@@ -609,11 +609,18 @@ again:
 	while (!endofwal)
 	{
 		WbCCProcessRepliesIfAny(conn);
+
+		ConnFlush(conn);
+
+		if (conn->copyDoneSent && conn->copyDoneReceived)
+			break;
+
 		if (WbMcReceiveWalMessage(master, NAPTIME, msg))
 		{
 			do {
 				if (msg->type == MSG_END_OF_WAL)
 				{
+					// TODO: handle end of wal
 					xf_info("End of WAL\n");
 					endofwal = true;
 					break;
@@ -716,20 +723,22 @@ WbCCSendWALRecord(XfConn conn, char *data, int len, XLogRecPtr sentPtr, Timestam
 	ConnFlush(conn);
 }*/
 
-/* TODO: To be used in the future
 static void
 WbCCSendEndOfWal(XfConn conn)
 {
 	ConnBeginMessage(conn, 'c');
 	ConnEndMessage(conn);
-	ConnFlush(conn);
-}*/
+	//ConnFlush(conn);
+	conn->copyDoneSent = true;
+}
 
 static void
 WbCCProcessRepliesIfAny(XfConn conn)
 {
 	char firstchar;
 	int r;
+
+	// TODO: record last receive timestamp here
 
 	for (;;)
 	{
@@ -741,11 +750,9 @@ WbCCProcessRepliesIfAny(XfConn conn)
 		if (r == 0)
 			break;
 
-		// 		if (streamingDoneReceiving && firstchar != 'X')
-		/*ereport(FATAL,
-				(errcode(ERRCODE_PROTOCOL_VIOLATION),
-				 errmsg("unexpected standby message type \"%c\", after receiving CopyDone",
-						firstchar)));*/
+		if (conn->copyDoneReceived && firstchar != 'X')
+			error("Unexpected standby message type \"%c\", after receiving CopyDone",
+					firstchar);
 
 		switch (firstchar)
 		{
@@ -753,25 +760,16 @@ WbCCProcessRepliesIfAny(XfConn conn)
 				WbCCProcessReplyMessage(conn);
 				break;
 			case 'c':
-				error("Received CopyDone");
-				/*if (!streamingDoneSending)
-				{
-					pq_putmessage_noblock('c', NULL, 0);
-					streamingDoneSending = true;
-				}
-
+				if (!conn->copyDoneSent)
+					WbCCSendEndOfWal(conn);
 				// consume the CopyData message
-				resetStringInfo(&reply_message);
-				if (pq_getmessage(&reply_message, 0))
 				{
-					ereport(COMMERROR,
-							(errcode(ERRCODE_PROTOCOL_VIOLATION),
-							 errmsg("unexpected EOF on standby connection")));
-					proc_exit(0);
+					XfMessage *msg;
+					if (ConnGetMessage(conn, &msg))
+						error("Unexpected EOF on standby connection");
+					ConnFreeMessage(msg);
 				}
-
-				streamingDoneReceiving = true;
-				received = true;*/
+				conn->copyDoneReceived = true;
 				break;
 			case 'X':
 				error("Standby is closing the socket");
