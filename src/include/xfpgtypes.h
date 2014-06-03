@@ -290,4 +290,9 @@ do { \
 
 extern const uint32 pg_crc32_table[];
 
+/* TODO: move to xffilter.c */
+#define REC_HEADER_LEN 32
+
+
+
 #endif   /* XF_PGTYPES_H */
