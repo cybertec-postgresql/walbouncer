@@ -1,13 +1,15 @@
-#include<string.h>
-
-#include <sys/types.h>
-#include <sys/socket.h>
-#include <netdb.h>
+// For asprintf. TODO: make POSIX compatible
+#define _GNU_SOURCE
 
 #include <errno.h>
-#include <stddef.h>
-
 #include <fcntl.h>
+#include <netdb.h>
+#include <stddef.h>
+#include <stdio.h>
+#include <string.h>
+#include <sys/types.h>
+#include <sys/socket.h>
+#include <unistd.h>
 
 #include "xfsocket.h"
 #include "xfutils.h"
@@ -34,7 +36,8 @@ OpenServerSocket(char *port)
 
 	if ((status = getaddrinfo(NULL, port, &hints, &res)) != 0) {
 		char *errmsg;
-	    asprintf(&errmsg, "getaddrinfo error: %s\n", gai_strerror(status));
+	    if (asprintf(&errmsg, "getaddrinfo error: %s\n", gai_strerror(status)) < 0)
+	    	error("Out of memory while reporting error");
 	    error(errmsg);
 	}
 
@@ -58,7 +61,6 @@ ConnCreate(XfSocket server)
 {
 	struct sockaddr_storage their_addr;
 	socklen_t addr_size;
-	char buf[32];
 	XfConn conn = malloc(sizeof(XfPortStruct));
 
 	xf_info("Waiting for connections.");
@@ -188,6 +190,9 @@ ConnRecvBuf(XfConn conn)
 		conn->recvLength += r;
 		return 0;
 	}
+	// silence the compiler
+	Assert(false);
+	return EOF;
 }
 
 int
@@ -419,7 +424,7 @@ ConnGetMessage(XfConn conn, XfMessage **msg)
 	return 0;
 }
 
-int
+void
 ConnFreeMessage(XfMessage *msg)
 {
 	xffree(msg);

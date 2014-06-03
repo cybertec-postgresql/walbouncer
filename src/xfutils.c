@@ -1,6 +1,8 @@
-#include "xfutils.h"
-#include <string.h>
+#include <arpa/inet.h>
 #include <stdarg.h>
+#include <string.h>
+
+#include "xfutils.h"
 
 /* Error reporting functions */
 

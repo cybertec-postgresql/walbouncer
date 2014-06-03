@@ -75,7 +75,6 @@ WbMcEndStreaming(MasterConn *master, TimeLineID *next_tli)
 {
 	PGconn *mc = master->conn;
 	PGresult   *res;
-	int i = 0;
 
 	if (PQputCopyEnd(mc, NULL) <= 0 || PQflush(mc))
 		error(PQerrorMessage(mc));
@@ -310,7 +309,6 @@ WbMcSend(MasterConn *master, const char *buffer, int nbytes)
 static void
 WbMcSendReply(MasterConn *master, bool force, bool requestReply)
 {
-	PGconn *mc = master->conn;
 	XLogRecPtr writePtr = master->latestWalEnd;
 	XLogRecPtr flushPtr = master->latestWalEnd;
 	XLogRecPtr	applyPtr = master->latestWalEnd;

@@ -146,12 +146,9 @@ SLOT				{ return K_SLOT; }
 				}
 
 <xd>{xdstop}	{
-					int len;
 					yyless(1);
 					BEGIN(INITIAL);
 					yylval.str = litbufdup();
-					//len = strlen(yylval.str);
-					//truncate_identifier(yylval.str, len, true);
 					return IDENT;
 				}
 

@@ -84,12 +84,15 @@ int
 ConnGetByte(XfConn conn);
 
 int
+ConnGetBytes(XfConn conn, char *s, size_t len);
+
+int
 ConnGetByteIfAvailable(XfConn conn, char *c);
 
 int
 ConnGetMessage(XfConn conn, XfMessage **msg);
 
-int
+void
 ConnFreeMessage(XfMessage *msg);
 
 
