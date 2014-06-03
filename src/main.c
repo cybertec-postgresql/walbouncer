@@ -574,37 +574,23 @@ ExecStartPhysical(XfConn conn, MasterConn *master, ReplicationCommand *cmd)
 		bool endofwal = false;
 		while (!endofwal)
 		{
-			char *buf;
-			int	len;
+			ReplMessage *msg;
 			XfProcessRepliesIfAny(conn);
-			len = WbMcReceiveWal(master, NAPTIME, &buf);
-			if (len != 0)
+			WbMcReceiveWalMessage(master, NAPTIME, msg);
+			while (msg->type != MSG_NOTHING)
 			{
-				for (;;)
+				if (msg->type == MSG_END_OF_WAL)
 				{
-					if (len > 0)
-					{
-						WbMcProcessMessage(master, buf, len, &msg);
-						if (buf[0] == 'w')
-						{
-							//XfSendWALRecord(conn, buf, len, msg->walEnd, msg->sendTime);
-						}
-					} else if (len == 0)
-						break;
-					else if (len < 0)
-					{
-						printf("End of WAL\n");
-						endofwal = true;
-						break;
-					}
-					len = WbMcReceiveWal(master, 0, &buf);
+					printf("End of WAL\n");
+					endofwal = true;
+					break;
 				}
+				if (msg->type == MSG_WAL_DATA)
+				{
+					//XfSendWALRecord(conn, buf, len, msg->walEnd, msg->sendTime);
+				}
+				WbMcReceiveWalMessage(master, 0, msg);
 			}
-			else
-			{
-				printf(".");
-			}
-
 		}
 	}
 
@@ -1156,42 +1142,30 @@ again:
 
 	while (!endofwal)
 	{
-		int len;
 		XfProcessRepliesIfAny(conn);
-		len = WbMcReceiveWal(master, NAPTIME, &buf);
-		if (len != 0)
+		if (WbMcReceiveWalMessage(master, NAPTIME, msg))
 		{
-			for (;;)
-			{
-				if (len > 0)
-				{
-					WbMcProcessMessage(master, buf, len, msg);
-					if (msg->type == MSG_WAL_DATA)
-					{
-						XLogRecPtr restartPos;
-						if (!ProcessWalDataBlock(msg, &fl, &restartPos))
-						{
-							TimeLineID tli;
-							WbMcEndStreaming(master, &tli);
-							Assert(tli == 0);
-							startReceivingFrom = restartPos;
-							goto again;
-						}
-						XfSendWalBlock(conn, msg, &fl);
-					}
-				} else if (len == 0)
-					break;
-				else if (len < 0)
+			do {
+				if (msg->type == MSG_END_OF_WAL)
 				{
 					printf("End of WAL\n");
 					endofwal = true;
 					break;
 				}
-				len = WbMcReceiveWal(master, 0, &buf);
-			}
-		}
-		else
-		{
+				if (msg->type == MSG_WAL_DATA)
+				{
+					XLogRecPtr restartPos;
+					if (!ProcessWalDataBlock(msg, &fl, &restartPos))
+					{
+						TimeLineID tli;
+						WbMcEndStreaming(master, &tli);
+						Assert(tli == 0);
+						startReceivingFrom = restartPos;
+						goto again;
+					}
+					XfSendWalBlock(conn, msg, &fl);
+				}
+			} while (WbMcReceiveWalMessage(master, 0, msg));
 		}
 	}
 	{

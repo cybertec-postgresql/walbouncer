@@ -4,6 +4,8 @@
 #include "xfglobals.h"
 
 typedef enum {
+	MSG_NOTHING,
+	MSG_END_OF_WAL,
 	MSG_WAL_DATA,
 	MSG_KEEPALIVE
 } WalMsgType;
@@ -28,7 +30,7 @@ typedef struct MasterConn MasterConn;
 MasterConn* WbMcOpenConnection(const char *conninfo);
 bool WbMcStartStreaming(MasterConn *master, XLogRecPtr pos, TimeLineID tli);
 void WbMcEndStreaming(MasterConn *master, TimeLineID *next_tli);
-void WbMcProcessMessage(MasterConn *master, char *buf, size_t len, ReplMessage *msg);
+bool WbMcReceiveWalMessage(MasterConn *master, int timeout, ReplMessage *msg);
 bool WbMcIdentifySystem(MasterConn* master,
 		char** primary_sysid, char** primary_tli, char** primary_xpos);
 Oid * WbMcResolveTablespaceOids(const char *conninfo, const char* tablespace_names);

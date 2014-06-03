@@ -13,6 +13,7 @@ static bool libpq_select(MasterConn *master, int timeout_ms);
 static void WbMcProcessWalsenderMessage(MasterConn *master, ReplMessage *msg);
 static void WbMcSend(MasterConn *master, const char *buffer, int nbytes);
 static void WbMcSendReply(MasterConn *master, bool force, bool requestReply);
+static int WbMcReceiveWal(MasterConn *master, int timeout, char **buffer);
 
 struct MasterConn {
 	PGconn* conn;
@@ -35,6 +36,8 @@ WbMcOpenConnection(const char *conninfo)
 void
 WbMcCloseConnection(MasterConn *master)
 {
+	if (master->recvBuf)
+		PQfreemem(master->recvBuf);
 	PQfinish(master->conn);
 	xffree(master);
 }
@@ -169,7 +172,64 @@ libpq_select(MasterConn *master, int timeout_ms)
 	return true;
 }
 
-int
+bool
+WbMcReceiveWalMessage(MasterConn *master, int timeout, ReplMessage *msg)
+{
+	int len;
+	char *buf;
+	len = WbMcReceiveWal(master, timeout, &buf);
+	if (len > 0)
+	{
+		switch (buf[0])
+		{
+			case 'w':
+				{
+					msg->type = MSG_WAL_DATA;
+					msg->dataStart = fromnetwork64(buf+1);
+					msg->walEnd = fromnetwork64(buf+9);
+					msg->sendTime = fromnetwork64(buf+17);
+					msg->replyRequested = 0;
+
+					msg->dataPtr = 0;
+					msg->dataLen = len - 25;
+					msg->data = buf+25;
+					msg->nextPageBoundary = (XLOG_BLCKSZ - msg->dataStart) & (XLOG_BLCKSZ-1);
+
+					xf_info("Received %u byte WAL block\n", len-25);
+					xf_info("   dataStart: %X/%X\n", FormatRecPtr(msg->dataStart));
+					xf_info("   walEnd: %lu\n", msg->walEnd);
+					xf_info("   sendTime: %lu\n", msg->sendTime);
+
+					WbMcProcessWalsenderMessage(master, msg);
+					break;
+				}
+			case 'k':
+				{
+					xf_info("Keepalive message\n");
+					msg->type = MSG_KEEPALIVE;
+					msg->walEnd = fromnetwork64(buf+1);
+					msg->sendTime = fromnetwork64(buf+9);
+					msg->replyRequested = *(buf+17);
+
+					xf_info("   walEnd: %lu\n", msg->walEnd);
+					xf_info("   sendTime: %lu\n", msg->sendTime);
+					xf_info("   replyRequested: %d\n", msg->replyRequested);
+					WbMcProcessWalsenderMessage(master, msg);
+
+					if (msg->replyRequested)
+						WbMcSendReply(master, true, false);
+					break;
+				}
+		}
+	}
+	else
+		msg->type = len < 0 ? MSG_END_OF_WAL : MSG_NOTHING;
+
+	return msg->type != MSG_NOTHING;
+}
+
+
+static int
 WbMcReceiveWal(MasterConn *master, int timeout, char **buffer)
 {
 	PGconn *mc = master->conn;
@@ -311,54 +371,6 @@ WbMcSendReply(MasterConn *master, bool force, bool requestReply)
 
 	xf_info("Send reply: %lu %lu %lu %d\n", writePtr, flushPtr, applyPtr, requestReply);
 	WbMcSend(master, reply_message, 34);
-}
-
-void
-WbMcProcessMessage(MasterConn *master, char *buf, size_t len,
-		ReplMessage *msg)
-{
-	PGconn *mc = master->conn;
-	switch (buf[0])
-	{
-		case 'w':
-			{
-				msg->type = MSG_WAL_DATA;
-				msg->dataStart = fromnetwork64(buf+1);
-				msg->walEnd = fromnetwork64(buf+9);
-				msg->sendTime = fromnetwork64(buf+17);
-				msg->replyRequested = 0;
-
-				msg->dataPtr = 0;
-				msg->dataLen = len - 25;
-				msg->data = buf+25;
-				msg->nextPageBoundary = (XLOG_BLCKSZ - msg->dataStart) & (XLOG_BLCKSZ-1);
-
-				xf_info("Received %lu byte WAL block\n", len-25);
-				xf_info("   dataStart: %X/%X\n", FormatRecPtr(msg->dataStart));
-				xf_info("   walEnd: %lu\n", msg->walEnd);
-				xf_info("   sendTime: %lu\n", msg->sendTime);
-
-				WbMcProcessWalsenderMessage(master, msg);
-				break;
-			}
-		case 'k':
-			{
-				xf_info("Keepalive message\n");
-				msg->type = MSG_KEEPALIVE;
-				msg->walEnd = fromnetwork64(buf+1);
-				msg->sendTime = fromnetwork64(buf+9);
-				msg->replyRequested = *(buf+17);
-
-				xf_info("   walEnd: %lu\n", msg->walEnd);
-				xf_info("   sendTime: %lu\n", msg->sendTime);
-				xf_info("   replyRequested: %d\n", msg->replyRequested);
-				WbMcProcessWalsenderMessage(master, msg);
-
-				if (msg->replyRequested)
-					WbMcSendReply(master, true, false);
-				break;
-			}
-	}
 }
 
 bool
