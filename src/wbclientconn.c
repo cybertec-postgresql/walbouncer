@@ -19,43 +19,44 @@ typedef struct {
 	XfMessage *msg;
 } XfCommand;
 
-static int ReadCommand(XfConn conn, XfCommand *cmd);
-static void ReadyForQuery(XfConn conn);
-static MasterConn* OpenConnectionToMaster(XfConn conn);
-static void forbidden_in_wal_sender();
-static int XfProcessStartupPacket(XfConn conn, bool SSLdone);
-static void BeginReportingGUCOptions(XfConn conn, MasterConn* master);
-static void ReportGuc(XfConn conn, MasterConn* master, char *name);
-static void ExecCommand(XfConn conn, MasterConn *master, char *query_string);
-static void ExecIdentifySystem(XfConn conn, MasterConn *master);
-static void ExecStartPhysical2(XfConn conn, MasterConn *master, ReplicationCommand *cmd);
-static void ExecTimeline();
-static Oid* FindTablespaceOids(XfConn conn);
-//static void XfSendWALRecord(XfConn conn, char *data, int len, XLogRecPtr sentPtr, TimestampTz lastSend);
-//static void XfSendEndOfWal(XfConn conn);
-static void XfSndKeepalive(XfConn conn, bool request_reply);
-static void XfProcessStandbyReplyMessage(XfConn conn, XfMessage *msg);
-static void XfProcessStandbyHSFeedbackMessage(XfConn conn, XfMessage *msg);
-static void XfProcessReplyMessage(XfConn conn);
-static void XfProcessRepliesIfAny(XfConn conn);
-static void SendCopyBothResponse(XfConn conn);
-static void XfSendWalBlock(XfConn conn, ReplMessage *msg, FilterData *fl);
+static int WbCCProcessStartupPacket(XfConn conn, bool SSLdone);
+static int WbCCReadCommand(XfConn conn, XfCommand *cmd);
+static void WbCCSendReadyForQuery(XfConn conn);
+static MasterConn* WbCCOpenConnectionToMaster(XfConn conn);
+static void ForbiddenInWalBouncer();
+static void WbCCBeginReportingGUCOptions(XfConn conn, MasterConn* master);
+static void WbCCReportGuc(XfConn conn, MasterConn* master, char *name);
+static void WbCCExecCommand(XfConn conn, MasterConn *master, char *query_string);
+static void WbCCExecIdentifySystem(XfConn conn, MasterConn *master);
+static void WbCCExecStartPhysical(XfConn conn, MasterConn *master, ReplicationCommand *cmd);
+static void WbCCExecTimeline();
+static Oid* WbCCFindTablespaceOids(XfConn conn);
+//static void WbCCSendWALRecord(XfConn conn, char *data, int len, XLogRecPtr sentPtr, TimestampTz lastSend);
+//static void WbCCSendEndOfWal(XfConn conn);
+static void WbCCProcessRepliesIfAny(XfConn conn);
+static void WbCCProcessReplyMessage(XfConn conn);
+static void WbCCProcessStandbyReplyMessage(XfConn conn, XfMessage *msg);
+static void WbCCSendKeepalive(XfConn conn, bool request_reply);
+static void WbCCProcessStandbyHSFeedbackMessage(XfConn conn, XfMessage *msg);
+static void WbCCSendCopyBothResponse(XfConn conn);
+static void WbCCSendWalBlock(XfConn conn, ReplMessage *msg, FilterData *fl);
 
 
 
 void
-XfInitConnection(XfConn conn)
+WbCCInitConnection(XfConn conn)
 {
 	xf_info("Received conn on fd %d", conn->fd);
 
 	//FIXME: need to timeout here
 	// setup error log destination
 	// copy socket info out here
-	if (XfProcessStartupPacket(conn, false) != STATUS_OK)
+	if (WbCCProcessStartupPacket(conn, false) != STATUS_OK)
 		error("Error while processing startup packet");
 }
 
-void XfPerformAuthentication(XfConn conn)
+void
+WbCCPerformAuthentication(XfConn conn)
 {
 	int status = STATUS_ERROR;
 
@@ -76,7 +77,7 @@ void XfPerformAuthentication(XfConn conn)
 }
 
 static int
-XfProcessStartupPacket(XfConn conn, bool SSLdone)
+WbCCProcessStartupPacket(XfConn conn, bool SSLdone)
 {
 	int32 len;
 	void *buf;
@@ -157,7 +158,7 @@ retry1:
 #endif
 		/* regular startup packet, cancel, etc packet should follow... */
 		/* but not another SSL negotiation request */
-		return XfProcessStartupPacket(conn, true);
+		return WbCCProcessStartupPacket(conn, true);
 	}
 
 	/* Could add additional special packet types here */
@@ -274,13 +275,13 @@ retry1:
 
 
 void
-XfCommandLoop(XfConn conn)
+WbCCCommandLoop(XfConn conn)
 {
 	int firstchar;
 	bool send_ready_for_query = true;
-	MasterConn* master = OpenConnectionToMaster(conn);
+	MasterConn* master = WbCCOpenConnectionToMaster(conn);
 
-	BeginReportingGUCOptions(conn, master);
+	WbCCBeginReportingGUCOptions(conn, master);
 
 	// Cancel message
 	ConnBeginMessage(conn, 'K');
@@ -297,17 +298,17 @@ XfCommandLoop(XfConn conn)
 		cmd.qtype = 0;
 		if (send_ready_for_query)
 		{
-			ReadyForQuery(conn);
+			WbCCSendReadyForQuery(conn);
 			send_ready_for_query = false;
 		}
 
-		firstchar = ReadCommand(conn, &cmd);
+		firstchar = WbCCReadCommand(conn, &cmd);
 		xf_info("after read command\n");
 		switch (firstchar)
 		{
 			case 'Q':
 				{
-					ExecCommand(conn, master, cmd.msg->data);
+					WbCCExecCommand(conn, master, cmd.msg->data);
 					send_ready_for_query = true;
 
 					/*char *query_string = pq_getmsgstgring(msg);
@@ -324,7 +325,7 @@ XfCommandLoop(XfConn conn)
 			case 'F':
 			case 'C':
 			case 'D':
-				forbidden_in_wal_sender();
+				ForbiddenInWalBouncer();
 				break;
 			case 'H':
 				ConnFlush(conn);
@@ -351,7 +352,7 @@ XfCommandLoop(XfConn conn)
 }
 
 static void
-forbidden_in_wal_sender()
+ForbiddenInWalBouncer()
 {
 	error("Invalid command for walsender");
 }
@@ -359,7 +360,7 @@ forbidden_in_wal_sender()
 
 
 static int
-ReadCommand(XfConn conn, XfCommand *cmd)
+WbCCReadCommand(XfConn conn, XfCommand *cmd)
 {
 	int qtype;
 	cmd->qtype = qtype = ConnGetByte(conn);
@@ -376,7 +377,7 @@ ReadCommand(XfConn conn, XfCommand *cmd)
 }
 
 static void
-ReadyForQuery(XfConn conn)
+WbCCSendReadyForQuery(XfConn conn)
 {
 	ConnBeginMessage(conn, 'Z');
 	ConnSendInt(conn, 'I', 1);
@@ -385,7 +386,7 @@ ReadyForQuery(XfConn conn)
 }
 
 static MasterConn*
-OpenConnectionToMaster(XfConn conn)
+WbCCOpenConnectionToMaster(XfConn conn)
 {
 	MasterConn* master;
 	char conninfo[MAX_CONNINFO_LEN+1];
@@ -413,24 +414,24 @@ OpenConnectionToMaster(XfConn conn)
 }
 
 static void
-BeginReportingGUCOptions(XfConn conn, MasterConn* master)
+WbCCBeginReportingGUCOptions(XfConn conn, MasterConn* master)
 {
 	//conn->sendBufMsgLenPtr
-	 ReportGuc(conn, master, "server_version");
-	 ReportGuc(conn, master, "server_encoding");
-	 ReportGuc(conn, master, "client_encoding");
-	 ReportGuc(conn, master, "application_name");
-	 ReportGuc(conn, master, "is_superuser");
-	 ReportGuc(conn, master, "session_authorization");
-	 ReportGuc(conn, master, "DateStyle");
-	 ReportGuc(conn, master, "IntervalStyle");
-	 ReportGuc(conn, master, "TimeZone");
-	 ReportGuc(conn, master, "integer_datetimes");
-	 ReportGuc(conn, master, "standard_conforming_strings");
+	 WbCCReportGuc(conn, master, "server_version");
+	 WbCCReportGuc(conn, master, "server_encoding");
+	 WbCCReportGuc(conn, master, "client_encoding");
+	 WbCCReportGuc(conn, master, "application_name");
+	 WbCCReportGuc(conn, master, "is_superuser");
+	 WbCCReportGuc(conn, master, "session_authorization");
+	 WbCCReportGuc(conn, master, "DateStyle");
+	 WbCCReportGuc(conn, master, "IntervalStyle");
+	 WbCCReportGuc(conn, master, "TimeZone");
+	 WbCCReportGuc(conn, master, "integer_datetimes");
+	 WbCCReportGuc(conn, master, "standard_conforming_strings");
 }
 
 static void
-ReportGuc(XfConn conn, MasterConn* master, char *name)
+WbCCReportGuc(XfConn conn, MasterConn* master, char *name)
 {
 	const char *value = WbMcParameterStatus(master, name);
 	if (!value)
@@ -442,7 +443,7 @@ ReportGuc(XfConn conn, MasterConn* master, char *name)
 }
 
 static void
-ExecCommand(XfConn conn, MasterConn *master, char *query_string)
+WbCCExecCommand(XfConn conn, MasterConn *master, char *query_string)
 {
 	int parse_rc;
 	ReplicationCommand *cmd;
@@ -460,7 +461,7 @@ ExecCommand(XfConn conn, MasterConn *master, char *query_string)
 	switch (cmd->command)
 	{
 		case REPL_IDENTIFY_SYSTEM:
-			ExecIdentifySystem(conn, master);
+			WbCCExecIdentifySystem(conn, master);
 			break;
 		case REPL_BASE_BACKUP:
 		case REPL_CREATE_SLOT:
@@ -468,13 +469,13 @@ ExecCommand(XfConn conn, MasterConn *master, char *query_string)
 			error("Command not supported");
 			break;
 		case REPL_START_PHYSICAL:
-			ExecStartPhysical2(conn, master, cmd);
+			WbCCExecStartPhysical(conn, master, cmd);
 			break;
 		case REPL_START_LOGICAL:
 			error("Command not supported");
 			break;
 		case REPL_TIMELINE:
-			ExecTimeline();
+			WbCCExecTimeline();
 			//TODO
 			break;
 	}
@@ -491,7 +492,7 @@ ExecCommand(XfConn conn, MasterConn *master, char *query_string)
 #define INT4OID 23
 
 static void
-ExecIdentifySystem(XfConn conn, MasterConn *master)
+WbCCExecIdentifySystem(XfConn conn, MasterConn *master)
 {
 	// query master server, pass through data
 	char *primary_sysid;
@@ -581,7 +582,7 @@ ExecIdentifySystem(XfConn conn, MasterConn *master)
 }
 
 static void
-ExecStartPhysical2(XfConn conn, MasterConn *master, ReplicationCommand *cmd)
+WbCCExecStartPhysical(XfConn conn, MasterConn *master, ReplicationCommand *cmd)
 {
 	bool endofwal = false;
 	XLogRecPtr startReceivingFrom;
@@ -593,7 +594,7 @@ ExecStartPhysical2(XfConn conn, MasterConn *master, ReplicationCommand *cmd)
 	if (conn->include_tablespaces)
 	{
 		xf_info("Including tablespaces: %s", conn->include_tablespaces);
-		fl->include_tablespaces = FindTablespaceOids(conn);
+		fl->include_tablespaces = WbCCFindTablespaceOids(conn);
 	} else {
 		fl->include_tablespaces = NULL;
 	}
@@ -603,17 +604,17 @@ ExecStartPhysical2(XfConn conn, MasterConn *master, ReplicationCommand *cmd)
 again:
 	WbMcStartStreaming(master, startReceivingFrom, cmd->timeline);
 
-	SendCopyBothResponse(conn);
+	WbCCSendCopyBothResponse(conn);
 
 	while (!endofwal)
 	{
-		XfProcessRepliesIfAny(conn);
+		WbCCProcessRepliesIfAny(conn);
 		if (WbMcReceiveWalMessage(master, NAPTIME, msg))
 		{
 			do {
 				if (msg->type == MSG_END_OF_WAL)
 				{
-					printf("End of WAL\n");
+					xf_info("End of WAL\n");
 					endofwal = true;
 					break;
 				}
@@ -628,7 +629,7 @@ again:
 						startReceivingFrom = restartPos;
 						goto again;
 					}
-					XfSendWalBlock(conn, msg, fl);
+					WbCCSendWalBlock(conn, msg, fl);
 				}
 			} while (WbMcReceiveWalMessage(master, 0, msg));
 		}
@@ -672,14 +673,14 @@ again:
 }
 
 static void
-ExecTimeline()
+WbCCExecTimeline()
 {
 	error("Timeline");
 	// query master server, write out copy data
 }
 
 static Oid*
-FindTablespaceOids(XfConn conn)
+WbCCFindTablespaceOids(XfConn conn)
 {
 	// TODO: take in other options
 	char conninfo[MAX_CONNINFO_LEN+1];
@@ -704,7 +705,7 @@ FindTablespaceOids(XfConn conn)
 }
 /* TODO: Probably not necessary
 static void
-XfSendWALRecord(XfConn conn, char *data, int len, XLogRecPtr sentPtr, TimestampTz lastSend)
+WbCCSendWALRecord(XfConn conn, char *data, int len, XLogRecPtr sentPtr, TimestampTz lastSend)
 {
 	xf_info("Sending out %d bytes of WAL\n", len);
 	ConnBeginMessage(conn, 'd');
@@ -717,7 +718,7 @@ XfSendWALRecord(XfConn conn, char *data, int len, XLogRecPtr sentPtr, TimestampT
 
 /* TODO: To be used in the future
 static void
-XfSendEndOfWal(XfConn conn)
+WbCCSendEndOfWal(XfConn conn)
 {
 	ConnBeginMessage(conn, 'c');
 	ConnEndMessage(conn);
@@ -725,94 +726,7 @@ XfSendEndOfWal(XfConn conn)
 }*/
 
 static void
-XfSndKeepalive(XfConn conn, bool request_reply)
-{
-	xf_info("sending keepalive message %X/%X%s\n",
-			(uint32) (conn->sentPtr>>32),
-			(uint32) conn->sentPtr,
-			request_reply ? " (reply requested)" : "");
-
-	ConnBeginMessage(conn, 'd');
-	ConnSendInt(conn, 'k', 1);
-	ConnSendInt64(conn, conn->sentPtr);
-	ConnSendInt64(conn, conn->lastSend);
-	ConnSendInt(conn, request_reply ? 1 : 0, 1);
-	ConnEndMessage(conn);
-	ConnFlush(conn);
-}
-
-static void
-XfProcessStandbyReplyMessage(XfConn conn, XfMessage *msg)
-{
-	XLogRecPtr	writePtr,
-				flushPtr,
-				applyPtr;
-	bool		replyRequested;
-
-	/* the caller already consumed the msgtype byte */
-	writePtr = fromnetwork64(msg->data + 1);
-	flushPtr = fromnetwork64(msg->data + 9);
-	applyPtr = fromnetwork64(msg->data + 17);
-	(void) fromnetwork64(msg->data + 25);		/* sendTime; not used ATM */
-	replyRequested = msg->data[33];
-
-	xf_info("Standby reply msg: write %X/%X flush %X/%X apply %X/%X%s\n",
-		 (uint32) (writePtr >> 32), (uint32) writePtr,
-		 (uint32) (flushPtr >> 32), (uint32) flushPtr,
-		 (uint32) (applyPtr >> 32), (uint32) applyPtr,
-		 replyRequested ? " (reply requested)" : "");
-
-	/* Send a reply if the standby requested one. */
-	if (replyRequested)
-		XfSndKeepalive(conn, false);
-
-	//TODO: send reply message forward
-}
-
-static void
-XfProcessStandbyHSFeedbackMessage(XfConn conn, XfMessage *msg)
-{
-	TransactionId feedbackXmin;
-	uint32		feedbackEpoch;
-	/*
-	 * Decipher the reply message. The caller already consumed the msgtype
-	 * byte.
-	 */
-	(void) fromnetwork64(msg->data + 1);		/* sendTime; not used ATM */
-	feedbackXmin = fromnetwork32(msg->data + 9);
-	feedbackEpoch = fromnetwork32(msg->data + 13);
-
-	xf_info("hot standby feedback xmin %u epoch %u\n",
-		 feedbackXmin,
-		 feedbackEpoch);
-
-	// TODO: arrange for the feedback to be forwarded to the master
-}
-
-static void
-XfProcessReplyMessage(XfConn conn)
-{
-	XfMessage *msg;
-	if (ConnGetMessage(conn, &msg))
-		error("unexpected EOF from receiver");
-
-	switch (msg->data[0])
-	{
-		case 'r':
-			XfProcessStandbyReplyMessage(conn, msg);
-			break;
-		case 'h':
-			XfProcessStandbyHSFeedbackMessage(conn, msg);
-			break;
-		default:
-			error("Unexpected message type");
-	}
-
-	ConnFreeMessage(msg);
-}
-
-static void
-XfProcessRepliesIfAny(XfConn conn)
+WbCCProcessRepliesIfAny(XfConn conn)
 {
 	char firstchar;
 	int r;
@@ -836,7 +750,7 @@ XfProcessRepliesIfAny(XfConn conn)
 		switch (firstchar)
 		{
 			case 'd':
-				XfProcessReplyMessage(conn);
+				WbCCProcessReplyMessage(conn);
 				break;
 			case 'c':
 				error("Received CopyDone");
@@ -868,7 +782,95 @@ XfProcessRepliesIfAny(XfConn conn)
 }
 
 static void
-SendCopyBothResponse(XfConn conn)
+WbCCProcessReplyMessage(XfConn conn)
+{
+	XfMessage *msg;
+	if (ConnGetMessage(conn, &msg))
+		error("unexpected EOF from receiver");
+
+	switch (msg->data[0])
+	{
+		case 'r':
+			WbCCProcessStandbyReplyMessage(conn, msg);
+			break;
+		case 'h':
+			WbCCProcessStandbyHSFeedbackMessage(conn, msg);
+			break;
+		default:
+			error("Unexpected message type");
+	}
+
+	ConnFreeMessage(msg);
+}
+
+static void
+WbCCProcessStandbyReplyMessage(XfConn conn, XfMessage *msg)
+{
+	XLogRecPtr	writePtr,
+				flushPtr,
+				applyPtr;
+	bool		replyRequested;
+
+	/* the caller already consumed the msgtype byte */
+	writePtr = fromnetwork64(msg->data + 1);
+	flushPtr = fromnetwork64(msg->data + 9);
+	applyPtr = fromnetwork64(msg->data + 17);
+	(void) fromnetwork64(msg->data + 25);		/* sendTime; not used ATM */
+	replyRequested = msg->data[33];
+
+	xf_info("Standby reply msg: write %X/%X flush %X/%X apply %X/%X%s\n",
+		 (uint32) (writePtr >> 32), (uint32) writePtr,
+		 (uint32) (flushPtr >> 32), (uint32) flushPtr,
+		 (uint32) (applyPtr >> 32), (uint32) applyPtr,
+		 replyRequested ? " (reply requested)" : "");
+
+	/* Send a reply if the standby requested one. */
+	if (replyRequested)
+		WbCCSendKeepalive(conn, false);
+
+	//TODO: send reply message forward
+}
+
+static void
+WbCCSendKeepalive(XfConn conn, bool request_reply)
+{
+	xf_info("sending keepalive message %X/%X%s\n",
+			(uint32) (conn->sentPtr>>32),
+			(uint32) conn->sentPtr,
+			request_reply ? " (reply requested)" : "");
+
+	ConnBeginMessage(conn, 'd');
+	ConnSendInt(conn, 'k', 1);
+	ConnSendInt64(conn, conn->sentPtr);
+	ConnSendInt64(conn, conn->lastSend);
+	ConnSendInt(conn, request_reply ? 1 : 0, 1);
+	ConnEndMessage(conn);
+	ConnFlush(conn);
+}
+
+static void
+WbCCProcessStandbyHSFeedbackMessage(XfConn conn, XfMessage *msg)
+{
+	TransactionId feedbackXmin;
+	uint32		feedbackEpoch;
+	/*
+	 * Decipher the reply message. The caller already consumed the msgtype
+	 * byte.
+	 */
+	(void) fromnetwork64(msg->data + 1);		/* sendTime; not used ATM */
+	feedbackXmin = fromnetwork32(msg->data + 9);
+	feedbackEpoch = fromnetwork32(msg->data + 13);
+
+	xf_info("hot standby feedback xmin %u epoch %u\n",
+		 feedbackXmin,
+		 feedbackEpoch);
+
+	// TODO: arrange for the feedback to be forwarded to the master
+}
+
+
+static void
+WbCCSendCopyBothResponse(XfConn conn)
 {
 	/* Send a CopyBothResponse message, and start streaming */
 	ConnBeginMessage(conn, 'W');
@@ -879,7 +881,7 @@ SendCopyBothResponse(XfConn conn)
 }
 
 static void
-XfSendWalBlock(XfConn conn, ReplMessage *msg, FilterData *fl)
+WbCCSendWalBlock(XfConn conn, ReplMessage *msg, FilterData *fl)
 {
 	XLogRecPtr dataStart;
 	int msgOffset = 0;

@@ -3,8 +3,8 @@
 
 #include "xfsocket.h"
 
-void XfInitConnection(XfConn conn);
-void XfPerformAuthentication(XfConn conn);
-void XfCommandLoop(XfConn conn);
+void WbCCInitConnection(XfConn conn);
+void WbCCPerformAuthentication(XfConn conn);
+void WbCCCommandLoop(XfConn conn);
 
 #endif

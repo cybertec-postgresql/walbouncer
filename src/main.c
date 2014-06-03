@@ -26,11 +26,11 @@ void XlogFilterMain()
 	conn->master_host = master_host;
 	conn->master_port = master_port;
 
-	XfInitConnection(conn);
+	WbCCInitConnection(conn);
 
-	XfPerformAuthentication(conn);
+	WbCCPerformAuthentication(conn);
 
-	XfCommandLoop(conn);
+	WbCCCommandLoop(conn);
 
 	CloseConn(conn);
 
