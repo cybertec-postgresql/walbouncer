@@ -390,7 +390,7 @@ WriteNoopRecord(FilterData *fl, ReplMessage *msg)
 
 		if (!toCopy)
 			return;
-		targetpos += fl->headerLen;
+		targetpos += amount + fl->headerLen;
 
 		// Copy the rest if any
 		amount = toCopy;
