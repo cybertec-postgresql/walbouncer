@@ -14,7 +14,7 @@
  *-------------------------------------------------------------------------
  */
 //#include "postgres.h"
-#include "xfutils.h"
+#include "wbutils.h"
 #include <string.h>
 #include "parser/stringinfo.h"
 //#include "utils/memutils.h"

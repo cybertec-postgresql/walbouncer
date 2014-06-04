@@ -2,7 +2,7 @@
 #include <stdarg.h>
 #include <string.h>
 
-#include "xfutils.h"
+#include "wbutils.h"
 
 /* Error reporting functions */
 

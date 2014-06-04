@@ -16,7 +16,7 @@ shutdown_pg()
 cleanup()
 {
     msg "Doing cleanup from previous runs"
-    killall -q xlogfilter
+    killall -q walbouncer
     
     shutdown_pg "$MASTER_DATA"
     rm -rf "$MASTER_DATA"
@@ -25,7 +25,7 @@ cleanup()
     shutdown_pg "$SLAVE2_DATA"
     rm -rf "$SLAVE2_DATA"
     
-    rm xlogfilter.log
+    rm walbouncer.log
     rm -rf tablespaces
     for db in master slave1 slave2; do
         for spc in slave1 slave2; do
@@ -101,10 +101,10 @@ EOF
     sed -i "s/port=5432/port=$2/" "$WD/$SLAVE_NAME/postgresql.conf"
 }
 
-start_xlogfilter()
+start_walbouncer()
 {
-    msg "Starting xlogfilter on port 5433 (output in xlogfilter.log)"
-    nohup $XLOGFILTER -p 5433 > xlogfilter.log &    
+    msg "Starting walbouncer on port 5433 (output in walbouncer.log)"
+    nohup $WALBOUNCER -p 5433 > walbouncer.log &    
 }
 
 start_slave()
@@ -165,15 +165,15 @@ WD="$(pwd)"
 MASTER_DATA="$WD/master"
 SLAVE1_DATA="$WD/slave1"
 SLAVE2_DATA="$WD/slave2"
-XLOGFILTER="$WD/../src/xlogfilter"
+WALBOUNCER="$WD/../src/walbouncer"
 
 cleanup
 setup_master
 setup_master_tablespaces
 setup_slave slave1 5434
-# Will enable this when xlogfilter supports forking
+# Will enable this when walbouncer supports forking
 #setup_slave slave2 5435
-start_xlogfilter
+start_walbouncer
 start_slave slave1
 
 create_test_tables
@@ -181,5 +181,5 @@ create_test_tables
 check_replication
 
 msg "Master is running on port 5432, slave1 on 5434."
-msg "xlogfilter.log contains heaps of debug info."
+msg "walbouncer.log contains heaps of debug info."
 msg "Have fun!"

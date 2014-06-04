@@ -6,8 +6,8 @@
 
 #include <getopt.h>
 
-#include "xfutils.h"
-#include "xfsocket.h"
+#include "wbutils.h"
+#include "wbsocket.h"
 
 #include "wbclientconn.h"
 
@@ -15,7 +15,7 @@ char* listen_port = "5433";
 char* master_host = "localhost";
 char* master_port = "5432";
 
-void XlogFilterMain()
+void WalBouncerMain()
 {
 	// set up signals for child reaper, etc.
 	// open socket for listening
@@ -53,7 +53,7 @@ int
 main(int argc, char **argv)
 {
 	int c;
-	progname = "xlogfilter";
+	progname = "walbouncer";
 
 	while (1)
 	{
@@ -76,13 +76,13 @@ main(int argc, char **argv)
 		switch (c)
 		{
 		case 'p':
-			listen_port = xfstrdup(optarg);
+			listen_port = wbstrdup(optarg);
 			break;
 		case 'h':
-			master_host = xfstrdup(optarg);
+			master_host = wbstrdup(optarg);
 			break;
 		case 'P':
-			master_port = xfstrdup(optarg);
+			master_port = wbstrdup(optarg);
 			break;
 		case '?':
 			usage();
@@ -95,6 +95,6 @@ main(int argc, char **argv)
 	}
 
 
-	XlogFilterMain();
+	WalBouncerMain();
 	return 0;
 }

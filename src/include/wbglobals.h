@@ -1,5 +1,5 @@
-#ifndef	_XF_GLOBALS_H
-#define _XF_GLOBALS_H 1
+#ifndef	_WB_GLOBALS_H
+#define _WB_GLOBALS_H 1
 
 #include<stdlib.h>
 #include<stdio.h>

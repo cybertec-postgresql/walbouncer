@@ -4,8 +4,8 @@
 #include<poll.h>
 #include<string.h>
 
-#include "xfutils.h"
-#include "xf_pg_config.h"
+#include "wbutils.h"
+#include "wb_pg_config.h"
 
 #include "libpq-fe.h"
 

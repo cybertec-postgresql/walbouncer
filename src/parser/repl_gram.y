@@ -21,7 +21,7 @@
 #include "replication/walsender.h"
 #include "replication/walsender_private.h"
 */
-#include "xfutils.h"
+#include "wbutils.h"
 #include "parser/parser.h"
 
 /* Result of the parsing is returned here */

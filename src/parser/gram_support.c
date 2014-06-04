@@ -1,5 +1,5 @@
 #include "parser/parser.h"
-#include "xfutils.h"
+#include "wbutils.h"
 
 ReplicationCommand*
 MakeReplCommand(ReplCommandType type)

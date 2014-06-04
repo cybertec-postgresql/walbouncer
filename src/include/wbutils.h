@@ -1,7 +1,7 @@
-#ifndef	_XF_UTILS_H
-#define _XF_UTILS_H 1
+#ifndef	_WB_UTILS_H
+#define _WB_UTILS_H 1
 
-#include "xfglobals.h"
+#include "wbglobals.h"
 
 #define xf_info(...) do{\
 	fprintf (stderr, __VA_ARGS__);\

@@ -2,7 +2,7 @@
 #ifndef PARSER_H
 #define PARSER_H
 
-#include "xfglobals.h"
+#include "wbglobals.h"
 
 typedef enum {
 	REPL_IDENTIFY_SYSTEM,

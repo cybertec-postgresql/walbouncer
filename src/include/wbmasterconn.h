@@ -1,7 +1,7 @@
 #ifndef	_WB_MASTERCONN_H
 #define _WB_MASTERCONN_H 1
 
-#include "xfglobals.h"
+#include "wbglobals.h"
 
 typedef enum {
 	MSG_NOTHING,

@@ -1,8 +1,8 @@
-#ifndef XF_PGTYPES_H
-#define XF_PGTYPES_H
+#ifndef _WB_PGTYPES_H
+#define _WB_PGTYPES_H
 
-#include "xfglobals.h"
-#include "xf_pg_config.h"
+#include "wbglobals.h"
+#include "wb_pg_config.h"
 
 typedef unsigned long int	uintptr_t;
 

@@ -4,8 +4,8 @@
 #include <errno.h>
 #include <string.h>
 
-#include "xfsocket.h"
-#include "xfutils.h"
+#include "wbsocket.h"
+#include "wbutils.h"
 #include "wbfilter.h"
 #include "wbmasterconn.h"
 

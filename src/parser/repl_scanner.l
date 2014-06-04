@@ -13,7 +13,7 @@
  *
  *-------------------------------------------------------------------------
  */
-#include "xfutils.h"
+#include "wbutils.h"
 #include "parser/stringinfo.h"
 #include "parser/scansup.h"
 

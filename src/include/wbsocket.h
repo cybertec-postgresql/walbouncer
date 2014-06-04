@@ -1,8 +1,8 @@
-#ifndef	_XF_SOCKET_H
-#define _XF_SOCKET_H 1
+#ifndef	_WB_SOCKET_H
+#define _WB_SOCKET_H 1
 
-#include "xfglobals.h"
-#include "xfproto.h"
+#include "wbglobals.h"
+#include "wbproto.h"
 
 typedef struct {
 	int fd;

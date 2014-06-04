@@ -2,8 +2,8 @@
 
 #include <string.h>
 
-#include "xfpgtypes.h"
-#include "xfutils.h"
+#include "wbpgtypes.h"
+#include "wbutils.h"
 
 
 

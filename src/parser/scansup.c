@@ -18,7 +18,7 @@
 #include <ctype.h>
 
 #include <string.h>
-#include "xfutils.h"
+#include "wbutils.h"
 #include "parser/scansup.h"
 //#include "mb/pg_wchar.h"
 

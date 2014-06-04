@@ -1,7 +1,7 @@
 #ifndef	_WB_FILTER_H
 #define _WB_FILTER_H 1
 
-#include "xfglobals.h"
+#include "wbglobals.h"
 #include "wbmasterconn.h"
 
 typedef enum {

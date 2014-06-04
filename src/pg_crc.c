@@ -1,4 +1,4 @@
-#include "xfpgtypes.h"
+#include "wbpgtypes.h"
 
 /*
  * This table is based on the polynomial

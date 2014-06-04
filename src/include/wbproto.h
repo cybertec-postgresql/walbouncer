@@ -1,4 +1,4 @@
-#ifndef	_XF_PROTO_H
+#ifndef	_WB_PROTO_H
 #define _XF_PROTO_H 1
 
 #define PG_PROTOCOL_MAJOR(v)	((v) >> 16)

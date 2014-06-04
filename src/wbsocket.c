@@ -11,8 +11,8 @@
 #include <sys/socket.h>
 #include <unistd.h>
 
-#include "xfsocket.h"
-#include "xfutils.h"
+#include "wbsocket.h"
+#include "wbutils.h"
 
 #define BACKLOG 10
 #define SEND_BUFFER_INIT_SIZE (256*1024)
