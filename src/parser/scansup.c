@@ -46,11 +46,11 @@ scanstr(const char *s)
 				j;
 
 	if (s == NULL || s[0] == '\0')
-		return xfstrdup("");
+		return wbstrdup("");
 
 	len = strlen(s);
 
-	newStr = xfalloc(len + 1);	/* string cannot get longer */
+	newStr = wballoc(len + 1);	/* string cannot get longer */
 
 	for (i = 0, j = 0; i < len; i++)
 	{
@@ -138,7 +138,7 @@ downcase_truncate_identifier(const char *ident, int len, bool warn)
 	int			i;
 	bool		enc_is_single_byte;
 
-	result = xfalloc(len + 1);
+	result = wballoc(len + 1);
 	//enc_is_single_byte = pg_database_encoding_max_length() == 1;
 	enc_is_single_byte = 1;
 

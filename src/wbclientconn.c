@@ -46,7 +46,7 @@ static void WbCCSendWalBlock(XfConn conn, ReplMessage *msg, FilterData *fl);
 void
 WbCCInitConnection(XfConn conn)
 {
-	xf_info("Received conn on fd %d", conn->fd);
+	wb_info("Received conn on fd %d", conn->fd);
 
 	//FIXME: need to timeout here
 	// setup error log destination
@@ -64,7 +64,7 @@ WbCCPerformAuthentication(XfConn conn)
 
 	if (status == STATUS_OK)
 	{
-		xf_info("Send auth packet");
+		wb_info("Send auth packet");
 		ConnBeginMessage(conn, 'R');
 		ConnSendInt(conn, (int32) AUTH_REQ_OK, sizeof(int32));
 		ConnEndMessage(conn);
@@ -106,9 +106,9 @@ WbCCProcessStartupPacket(XfConn conn, bool SSLdone)
 	 * packet layouts.
 	 */
 	if (len <= (int32) sizeof(StartupPacket))
-		buf = xfalloc0(sizeof(StartupPacket) + 1);
+		buf = wballoc0(sizeof(StartupPacket) + 1);
 	else
-		buf = xfalloc0(len + 1);
+		buf = wballoc0(len + 1);
 
 	if (ConnGetBytes(conn, buf, len) == EOF)
 	{
@@ -181,7 +181,7 @@ retry1:
 	 */
 	//oldcontext = MemoryContextSwitchTo(TopMemoryContext);
 
-	conn->guc_options = xfalloc0(len);
+	conn->guc_options = wballoc0(len);
 	conn->gucs_len = 0;
 	conn->database_name = NULL;
 	conn->user_name = NULL;
@@ -210,11 +210,11 @@ retry1:
 			valptr = ((char *) buf) + valoffset;
 
 			if (strcmp(nameptr, "database") == 0)
-				conn->database_name = xfstrdup(valptr);
+				conn->database_name = wbstrdup(valptr);
 			else if (strcmp(nameptr, "user") == 0)
-				conn->user_name = xfstrdup(valptr);
+				conn->user_name = wbstrdup(valptr);
 			else if (strcmp(nameptr, "options") == 0)
-				conn->cmdline_options = xfstrdup(valptr);
+				conn->cmdline_options = wbstrdup(valptr);
 			else if (strcmp(nameptr, "replication") == 0)
 			{
 				/*
@@ -241,7 +241,7 @@ retry1:
 			}
 			else if (strcmp(nameptr, "application_name") == 0)
 			{
-				conn->include_tablespaces = xfstrdup(valptr);
+				conn->include_tablespaces = wbstrdup(valptr);
 			}
 			else
 			{
@@ -303,7 +303,7 @@ WbCCCommandLoop(XfConn conn)
 		}
 
 		firstchar = WbCCReadCommand(conn, &cmd);
-		xf_info("after read command\n");
+		wb_info("after read command\n");
 		switch (firstchar)
 		{
 			case 'Q':
@@ -371,7 +371,7 @@ WbCCReadCommand(XfConn conn, XfCommand *cmd)
 	if (ConnGetMessage(conn, &(cmd->msg)))
 		return EOF;
 
-	xf_info("Command %c payload %d\n", qtype, cmd->msg->len);
+	wb_info("Command %c payload %d\n", qtype, cmd->msg->len);
 
 	return qtype;
 }
@@ -407,9 +407,9 @@ WbCCOpenConnectionToMaster(XfConn conn)
 
 	buf += snprintf(buf, buf_end - buf, "dbname=replication replication=true application_name=walbouncer");
 
-	xf_info("Start connecting to %s\n", conninfo);
+	wb_info("Start connecting to %s\n", conninfo);
 	master = WbMcOpenConnection(conninfo);
-	xf_info("Connected to master\n");
+	wb_info("Connected to master\n");
 	return master;
 }
 
@@ -456,7 +456,7 @@ WbCCExecCommand(XfConn conn, MasterConn *master, char *query_string)
 
 	cmd = replication_parse_result;
 
-	xf_info("Query: %s\n", query_string);
+	wb_info("Query: %s\n", query_string);
 
 	switch (cmd->command)
 	{
@@ -484,7 +484,7 @@ WbCCExecCommand(XfConn conn, MasterConn *master, char *query_string)
 	ConnBeginMessage(conn, 'C');
 	ConnSendString(conn, "SELECT");
 	ConnEndMessage(conn);
-	xffree(cmd);
+	wbfree(cmd);
 }
 
 /* TODO: move these to PG version specific config file */
@@ -506,10 +506,10 @@ WbCCExecIdentifySystem(XfConn conn, MasterConn *master)
 			&primary_xpos))
 		error("Identify system failed.");
 
-	xf_info("System identifier: %s\n", primary_sysid);
-	xf_info("TLI: %s\n", primary_tli);
-	xf_info("Xpos: %s\n", primary_xpos);
-	xf_info("dbname: %s\n", dbname);
+	wb_info("System identifier: %s\n", primary_sysid);
+	wb_info("TLI: %s\n", primary_tli);
+	wb_info("Xpos: %s\n", primary_xpos);
+	wb_info("dbname: %s\n", dbname);
 
 	//TODO: parse out tli and xpos for our use
 
@@ -576,9 +576,9 @@ WbCCExecIdentifySystem(XfConn conn, MasterConn *master)
 
 	ConnEndMessage(conn);
 
-	xffree(primary_sysid);
-	xffree(primary_tli);
-	xffree(primary_xpos);
+	wbfree(primary_sysid);
+	wbfree(primary_tli);
+	wbfree(primary_xpos);
 }
 
 static void
@@ -586,14 +586,14 @@ WbCCExecStartPhysical(XfConn conn, MasterConn *master, ReplicationCommand *cmd)
 {
 	bool endofwal = false;
 	XLogRecPtr startReceivingFrom;
-	ReplMessage *msg = xfalloc(sizeof(ReplMessage));
+	ReplMessage *msg = wballoc(sizeof(ReplMessage));
 	FilterData *fl = WbFCreateProcessingState(cmd->startpoint);
 
 
 	/* TODO: refactor this into wbfilter */
 	if (conn->include_tablespaces)
 	{
-		xf_info("Including tablespaces: %s", conn->include_tablespaces);
+		wb_info("Including tablespaces: %s", conn->include_tablespaces);
 		fl->include_tablespaces = WbCCFindTablespaceOids(conn);
 	} else {
 		fl->include_tablespaces = NULL;
@@ -621,7 +621,7 @@ again:
 				if (msg->type == MSG_END_OF_WAL)
 				{
 					// TODO: handle end of wal
-					xf_info("End of WAL\n");
+					wb_info("End of WAL\n");
 					endofwal = true;
 					break;
 				}
@@ -676,7 +676,7 @@ again:
 	//		i(strlen(startpos_str)) p(startpos_str)
 	// pq_puttextmessage('C', "START_STREAMING")
 	WbFFreeProcessingState(fl);
-	xffree(msg);
+	wbfree(msg);
 }
 
 static void
@@ -714,7 +714,7 @@ WbCCFindTablespaceOids(XfConn conn)
 static void
 WbCCSendWALRecord(XfConn conn, char *data, int len, XLogRecPtr sentPtr, TimestampTz lastSend)
 {
-	xf_info("Sending out %d bytes of WAL\n", len);
+	wb_info("Sending out %d bytes of WAL\n", len);
 	ConnBeginMessage(conn, 'd');
 	ConnSendBytes(conn, data, len);
 	ConnEndMessage(conn);
@@ -816,7 +816,7 @@ WbCCProcessStandbyReplyMessage(XfConn conn, XfMessage *msg)
 	(void) fromnetwork64(msg->data + 25);		/* sendTime; not used ATM */
 	replyRequested = msg->data[33];
 
-	xf_info("Standby reply msg: write %X/%X flush %X/%X apply %X/%X%s\n",
+	wb_info("Standby reply msg: write %X/%X flush %X/%X apply %X/%X%s\n",
 		 (uint32) (writePtr >> 32), (uint32) writePtr,
 		 (uint32) (flushPtr >> 32), (uint32) flushPtr,
 		 (uint32) (applyPtr >> 32), (uint32) applyPtr,
@@ -832,7 +832,7 @@ WbCCProcessStandbyReplyMessage(XfConn conn, XfMessage *msg)
 static void
 WbCCSendKeepalive(XfConn conn, bool request_reply)
 {
-	xf_info("sending keepalive message %X/%X%s\n",
+	wb_info("sending keepalive message %X/%X%s\n",
 			(uint32) (conn->sentPtr>>32),
 			(uint32) conn->sentPtr,
 			request_reply ? " (reply requested)" : "");
@@ -859,7 +859,7 @@ WbCCProcessStandbyHSFeedbackMessage(XfConn conn, XfMessage *msg)
 	feedbackXmin = fromnetwork32(msg->data + 9);
 	feedbackEpoch = fromnetwork32(msg->data + 13);
 
-	xf_info("hot standby feedback xmin %u epoch %u\n",
+	wb_info("hot standby feedback xmin %u epoch %u\n",
 		 feedbackXmin,
 		 feedbackEpoch);
 
@@ -891,7 +891,7 @@ WbCCSendWalBlock(XfConn conn, ReplMessage *msg, FilterData *fl)
 	if (fl->unsentBufferLen) {
 		unsentLen = fl->unsentBufferLen;
 		memcpy(unsentBuf, fl->unsentBuffer, unsentLen);
-		xf_info("Sending %d bytes of unbuffered data", unsentLen);
+		wb_info("Sending %d bytes of unbuffered data", unsentLen);
 	}
 
 	//'d' 'w' l(dataStart) l(walEnd) l(sendTime) s[WALdata]
@@ -904,7 +904,7 @@ WbCCSendWalBlock(XfConn conn, ReplMessage *msg, FilterData *fl)
 		memcpy(fl->unsentBuffer, fl->buffer, fl->bufferLen);
 		// Make note that record starts in the unsent buffer for rewriting
 		fl->recordStart = -1;
-		xf_info("Buffering %d bytes of data", buffered);
+		wb_info("Buffering %d bytes of data", buffered);
 
 	} else {
 		// Clear out unsent buffer
@@ -914,7 +914,7 @@ WbCCSendWalBlock(XfConn conn, ReplMessage *msg, FilterData *fl)
 	// Don't send anything if we are not synchronized, we will see this data again after replication restart
 	if (!fl->synchronized)
 	{
-		xf_info("Skipping sending data.");
+		wb_info("Skipping sending data.");
 		return;
 	}
 
@@ -924,26 +924,26 @@ WbCCSendWalBlock(XfConn conn, ReplMessage *msg, FilterData *fl)
 	if (fl->requestedStartPos > dataStart) {
 		if (fl->requestedStartPos > (msg->dataStart + msg->dataLen))
 		{
-			xf_info("Skipping whole WAL message as not requested");
+			wb_info("Skipping whole WAL message as not requested");
 			return;
 		}
 		msgOffset = fl->requestedStartPos - dataStart;
 		dataStart = fl->requestedStartPos;
 		Assert(msgOffset < (msg->dataLen + unsentLen));
-		xf_info("Chomping WAL message down to size at %d", msgOffset);
+		wb_info("Chomping WAL message down to size at %d", msgOffset);
 	}
 
-	xf_info("Sending data start %X/%X", FormatRecPtr(dataStart));
+	wb_info("Sending data start %X/%X", FormatRecPtr(dataStart));
 
 	ConnBeginMessage(conn, 'd');
 	ConnSendInt(conn, 'w', 1);
 	ConnSendInt64(conn, dataStart);
 	ConnSendInt64(conn, msg->walEnd - buffered);
 	ConnSendInt64(conn, msg->sendTime);
-	xf_info("Sending out %d bytes of WAL\n", msg->dataLen - msgOffset - buffered);
+	wb_info("Sending out %d bytes of WAL\n", msg->dataLen - msgOffset - buffered);
 
 	if (unsentLen && msgOffset < unsentLen) {
-		xf_info("Unsent data contents at offset %d, %d bytes:", msgOffset, unsentLen-msgOffset);
+		wb_info("Unsent data contents at offset %d, %d bytes:", msgOffset, unsentLen-msgOffset);
 		hexdump(unsentBuf + msgOffset, unsentLen);
 		ConnSendBytes(conn, unsentBuf + msgOffset, unsentLen-msgOffset);
 		msgOffset = msgOffset < unsentLen ? 0 : msgOffset - unsentLen;

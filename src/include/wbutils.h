@@ -3,26 +3,26 @@
 
 #include "wbglobals.h"
 
-#define xf_info(...) do{\
+#define wb_info(...) do{\
 	fprintf (stderr, __VA_ARGS__);\
 	fprintf (stderr, "\n");\
 }while(0)
-#define log_error(x) xf_info(x)
+#define log_error(x) wb_info(x)
 
 
 void __attribute__((noreturn)) error(const char *message, ...);
 void showPQerror(PGconn *mc, char *message);
 
 
-void *xfalloc(size_t amount);
-void *xfalloc0(size_t amount);
-void *rexfalloc(void *ptr, size_t amount);
-char *xfstrdup(char *s);
-void xffree(void *ptr);
+void *wballoc(size_t amount);
+void *wballoc0(size_t amount);
+void *rewballoc(void *ptr, size_t amount);
+char *wbstrdup(char *s);
+void wbfree(void *ptr);
 
 #define Assert(x) do {\
 		if (!(x)) {\
-			xf_info("Assert failure at %s:%d", __FILE__, __LINE__);\
+			wb_info("Assert failure at %s:%d", __FILE__, __LINE__);\
 		}\
 } while(0)
 

@@ -25,9 +25,9 @@ OpenServerSocket(char *port)
 	struct addrinfo hints;
 	struct addrinfo *res;
 	int yes=1;
-	XfSocket sock = xfalloc(sizeof(XfSocketStruct));
+	XfSocket sock = wballoc(sizeof(XfSocketStruct));
 
-	xf_info("Starting socket on port %s", port);
+	wb_info("Starting socket on port %s", port);
 
 	memset(&hints, 0, sizeof(hints));
 	hints.ai_family = AF_UNSPEC;
@@ -63,14 +63,14 @@ ConnCreate(XfSocket server)
 	socklen_t addr_size;
 	XfConn conn = malloc(sizeof(XfPortStruct));
 
-	xf_info("Waiting for connections.");
+	wb_info("Waiting for connections.");
 	conn->fd = accept(server->fd, (struct sockaddr *) &their_addr, &addr_size);
 
-	conn->recvBuffer = xfalloc(RECV_BUFFER_SIZE);
+	conn->recvBuffer = wballoc(RECV_BUFFER_SIZE);
 	conn->recvPointer = 0;
 	conn->recvLength = 0;
 
-	conn->sendBuffer = xfalloc(SEND_BUFFER_INIT_SIZE);
+	conn->sendBuffer = wballoc(SEND_BUFFER_INIT_SIZE);
 	conn->sendBufSize = SEND_BUFFER_INIT_SIZE;
 	conn->sendBufLen = 0;
 	conn->sendBufMsgLenPtr = -1;
@@ -108,7 +108,7 @@ ConnFlush(XfConn conn)
 	while (remaining > 0)
 	{
 		int r;
-		xf_info(" - Sending %d\n", remaining);
+		wb_info(" - Sending %d\n", remaining);
 		//hexdump(conn->sendBuffer+sent, remaining);
 		//printf("\n");
 		r = send(conn->fd, conn->sendBuffer + sent, remaining, 0);
@@ -290,7 +290,7 @@ ConnEnsureFreeSpace(XfConn conn, int amount)
 	if (conn->sendBufSize - conn->sendBufLen < amount)
 	{
 		int new_size = conn->sendBufSize*2;
-		conn->sendBuffer = rexfalloc(conn->sendBuffer, new_size);
+		conn->sendBuffer = rewballoc(conn->sendBuffer, new_size);
 		conn->sendBufSize = new_size;
 	}
 }
@@ -373,7 +373,7 @@ ConnEndMessage(XfConn conn)
 	Assert(conn->sendBufMsgLenPtr > 0);
 
 	n32 = htonl((uint32) (conn->sendBufLen - conn->sendBufMsgLenPtr));
-	xf_info("msg %c len: %d\n", conn->sendBuffer[conn->sendBufMsgLenPtr-1], (conn->sendBufLen - conn->sendBufMsgLenPtr));
+	wb_info("msg %c len: %d\n", conn->sendBuffer[conn->sendBufMsgLenPtr-1], (conn->sendBufLen - conn->sendBufMsgLenPtr));
 
 	// TODO: handle unaligned access
 	*((uint32*)(conn->sendBuffer + conn->sendBufMsgLenPtr)) = n32;
@@ -412,7 +412,7 @@ ConnGetMessage(XfConn conn, XfMessage **msg)
 	}
 
 	len -= 4;
-	*msg = buf = xfalloc(offsetof(XfMessage, data) + len + 1);
+	*msg = buf = wballoc(offsetof(XfMessage, data) + len + 1);
 	buf->len = len;
 	if (len > 0)
 	{
@@ -429,5 +429,5 @@ ConnGetMessage(XfConn conn, XfMessage **msg)
 void
 ConnFreeMessage(XfMessage *msg)
 {
-	xffree(msg);
+	wbfree(msg);
 }

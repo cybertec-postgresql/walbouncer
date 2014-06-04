@@ -24,7 +24,7 @@ FilterData*
 WbFCreateProcessingState(XLogRecPtr startPoint)
 {
 	FilterData *fl;
-	fl = xfalloc0(sizeof(FilterData));
+	fl = wballoc0(sizeof(FilterData));
 
 	fl->state = FS_SYNCHRONIZING;
 	fl->dataNeeded = 0;
@@ -41,7 +41,7 @@ WbFCreateProcessingState(XLogRecPtr startPoint)
 }
 void WbFFreeProcessingState(FilterData* fl)
 {
-	xffree(fl);
+	wbfree(fl);
 }
 
 /*#define parse_debug(...) do{\
@@ -326,7 +326,7 @@ ReplDataRemainingInSegment(ReplMessage *msg)
 {
 	XLogRecPtr curPos = msg->dataStart + msg->dataPtr;
 	XLogRecPtr segEnd = (curPos + XLogSegSize) & (~(XLogSegSize - 1));
-	xf_info("Curpos %X/%X segEnd %X/%X", FormatRecPtr(curPos), FormatRecPtr(segEnd));
+	wb_info("Curpos %X/%X segEnd %X/%X", FormatRecPtr(curPos), FormatRecPtr(segEnd));
 	return segEnd - curPos;
 }
 
@@ -418,7 +418,7 @@ NeedToFilter(FilterData *fl, RelFileNode *node)
 		if (node->spcNode == *tblspc_oid)
 			return false;
 	}
-	xf_info("Filtering data in tablespace %d", node->spcNode);
+	wb_info("Filtering data in tablespace %d", node->spcNode);
 	return true;
 }
 

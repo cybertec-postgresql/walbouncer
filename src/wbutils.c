@@ -24,7 +24,7 @@ void showPQerror(PGconn *mc, char *message)
 
 /* Memory allocation functions */
 
-void *xfalloc(size_t amount)
+void *wballoc(size_t amount)
 {
 	void *result = malloc(amount);
 	if (!result)
@@ -32,13 +32,13 @@ void *xfalloc(size_t amount)
 	return result;
 }
 
-void *xfalloc0(size_t amount)
+void *wballoc0(size_t amount)
 {
-	char *result = xfalloc(amount);
+	char *result = wballoc(amount);
 	memset(result, 0, amount);
 	return result;
 }
-char *xfstrdup(char *s)
+char *wbstrdup(char *s)
 {
 	char *result = strdup(s);
 	if (!result)
@@ -46,7 +46,7 @@ char *xfstrdup(char *s)
 	return result;
 }
 
-void *rexfalloc(void *ptr, size_t amount)
+void *rewballoc(void *ptr, size_t amount)
 {
 	void *result = realloc(ptr, amount);
 	if (!result)
@@ -54,7 +54,7 @@ void *rexfalloc(void *ptr, size_t amount)
 	return result;
 }
 
-void xffree(void *ptr)
+void wbfree(void *ptr)
 {
 	free(ptr);
 }

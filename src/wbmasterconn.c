@@ -25,7 +25,7 @@ struct MasterConn {
 MasterConn*
 WbMcOpenConnection(const char *conninfo)
 {
-	MasterConn* master = xfalloc0(sizeof(MasterConn));
+	MasterConn* master = wballoc0(sizeof(MasterConn));
 	master->conn = PQconnectdb(conninfo);
 	if (PQstatus(master->conn) != CONNECTION_OK)
 		error(PQerrorMessage(master->conn));
@@ -39,7 +39,7 @@ WbMcCloseConnection(MasterConn *master)
 	if (master->recvBuf)
 		PQfreemem(master->recvBuf);
 	PQfinish(master->conn);
-	xffree(master);
+	wbfree(master);
 }
 
 bool
@@ -49,7 +49,7 @@ WbMcStartStreaming(MasterConn *master, XLogRecPtr pos, TimeLineID tli)
 	char cmd[256];
 	PGresult *res;
 
-	xf_info("Start streaming from master at %X/%X", FormatRecPtr(pos));
+	wb_info("Start streaming from master at %X/%X", FormatRecPtr(pos));
 
 	snprintf(cmd, sizeof(cmd),
 			"START_REPLICATION %X/%X TIMELINE %u",
@@ -126,7 +126,7 @@ WbMcEndStreaming(MasterConn *master, TimeLineID *next_tli)
 	/* Verify that there are no more results */
 	res = PQgetResult(mc);
 	while (res!=NULL) {
-		xf_info("Status: %d", PQresultStatus(res));
+		wb_info("Status: %d", PQresultStatus(res));
 		res = PQgetResult(mc);
 	}
 
@@ -194,25 +194,25 @@ WbMcReceiveWalMessage(MasterConn *master, int timeout, ReplMessage *msg)
 					msg->data = buf+25;
 					msg->nextPageBoundary = (XLOG_BLCKSZ - msg->dataStart) & (XLOG_BLCKSZ-1);
 
-					xf_info("Received %u byte WAL block\n", len-25);
-					xf_info("   dataStart: %X/%X\n", FormatRecPtr(msg->dataStart));
-					xf_info("   walEnd: %lu\n", msg->walEnd);
-					xf_info("   sendTime: %lu\n", msg->sendTime);
+					wb_info("Received %u byte WAL block\n", len-25);
+					wb_info("   dataStart: %X/%X\n", FormatRecPtr(msg->dataStart));
+					wb_info("   walEnd: %lu\n", msg->walEnd);
+					wb_info("   sendTime: %lu\n", msg->sendTime);
 
 					WbMcProcessWalsenderMessage(master, msg);
 					break;
 				}
 			case 'k':
 				{
-					xf_info("Keepalive message\n");
+					wb_info("Keepalive message\n");
 					msg->type = MSG_KEEPALIVE;
 					msg->walEnd = fromnetwork64(buf+1);
 					msg->sendTime = fromnetwork64(buf+9);
 					msg->replyRequested = *(buf+17);
 
-					xf_info("   walEnd: %lu\n", msg->walEnd);
-					xf_info("   sendTime: %lu\n", msg->sendTime);
-					xf_info("   replyRequested: %d\n", msg->replyRequested);
+					wb_info("   walEnd: %lu\n", msg->walEnd);
+					wb_info("   sendTime: %lu\n", msg->sendTime);
+					wb_info("   replyRequested: %d\n", msg->replyRequested);
 					WbMcProcessWalsenderMessage(master, msg);
 
 					if (msg->replyRequested)
@@ -367,7 +367,7 @@ WbMcSendReply(MasterConn *master, bool force, bool requestReply)
 		 (uint32) (applyPtr >> 32), (uint32) applyPtr,
 		 requestReply ? " (reply requested)" : "");*/
 
-	xf_info("Send reply: %lu %lu %lu %d\n", writePtr, flushPtr, applyPtr, requestReply);
+	wb_info("Send reply: %lu %lu %lu %d\n", writePtr, flushPtr, applyPtr, requestReply);
 	WbMcSend(master, reply_message, 34);
 }
 
@@ -389,11 +389,11 @@ WbMcIdentifySystem(MasterConn* master,
 	}
 
 	if (primary_sysid)
-		*primary_sysid = xfstrdup(PQgetvalue(result, 0, 0));
+		*primary_sysid = wbstrdup(PQgetvalue(result, 0, 0));
 	if (primary_tli)
-		*primary_tli = xfstrdup(PQgetvalue(result, 0, 1));
+		*primary_tli = wbstrdup(PQgetvalue(result, 0, 1));
 	if (primary_xpos)
-		*primary_xpos = xfstrdup(PQgetvalue(result, 0, 2));
+		*primary_xpos = wbstrdup(PQgetvalue(result, 0, 2));
 
 	PQclear(result);
 	return true;
@@ -419,12 +419,12 @@ WbMcResolveTablespaceOids(const char *conninfo, const char* tablespace_names)
 		error("Could not retrieve tablespaces: %s", PQerrorMessage(master->conn));
 
 	oidcount = PQntuples(res);
-	oids = xfalloc0(sizeof(Oid)*(oidcount+1));
+	oids = wballoc0(sizeof(Oid)*(oidcount+1));
 
 	for (i = 0; i < oidcount; i++)
 	{
 		char *oid = PQgetvalue(res, i, 0);
-		xf_info("Found tablespace oid %s %d", oid, atoi(oid));
+		wb_info("Found tablespace oid %s %d", oid, atoi(oid));
 		oids[i] = atoi(oid);
 	}
 	PQclear(res);

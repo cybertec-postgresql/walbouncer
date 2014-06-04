@@ -30,7 +30,7 @@ makeStringInfo(void)
 {
 	StringInfo	res;
 
-	res = (StringInfo) xfalloc(sizeof(StringInfoData));
+	res = (StringInfo) wballoc(sizeof(StringInfoData));
 
 	initStringInfo(res);
 
@@ -48,7 +48,7 @@ initStringInfo(StringInfo str)
 {
 	int			size = 1024;	/* initial default buffer size */
 
-	str->data = (char *) xfalloc(size);
+	str->data = (char *) wballoc(size);
 	str->maxlen = size;
 	resetStringInfo(str);
 }
@@ -289,7 +289,7 @@ enlargeStringInfo(StringInfo str, int needed)
 	if (newlen > (int) MaxAllocSize)
 		newlen = (int) MaxAllocSize;
 
-	str->data = (char *) rexfalloc(str->data, newlen);
+	str->data = (char *) rewballoc(str->data, newlen);
 
 	str->maxlen = newlen;
 }
