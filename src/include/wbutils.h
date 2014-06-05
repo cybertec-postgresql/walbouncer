@@ -3,13 +3,31 @@
 
 #include "wbglobals.h"
 
-#define wb_info(...) do{\
-	fprintf (stderr, __VA_ARGS__);\
-	fprintf (stderr, "\n");\
-}while(0)
-#define log_error(x) wb_info(x)
+typedef enum LogLevel {
+	LOG_DEBUG3,
+	LOG_DEBUG2,
+	LOG_DEBUG1,
+	LOG_INFO,
+	LOG_WARNING,
+	LOG_ERROR
+} LogLevel;
+#define LOG_LOWEST_LEVEL LOG_DEBUG3
 
+extern LogLevel loggingLevel;
 
+#define wb_log(level, levelStr, ...) if (loggingLevel <= level)\
+{\
+	do_wb_log(level, levelStr, __FILE__, __VA_ARGS__);\
+}
+
+#define log_debug3(...) wb_log(LOG_DEBUG3, "DEBUG3", __VA_ARGS__)
+#define log_debug2(...) wb_log(LOG_DEBUG2, "DEBUG2", __VA_ARGS__)
+#define log_debug1(...) wb_log(LOG_DEBUG1, "DEBUG1", __VA_ARGS__)
+#define log_info(...) wb_log(LOG_INFO, "INFO", __VA_ARGS__)
+#define log_warning(...) wb_log(LOG_WARNING, "WARNING", __VA_ARGS__)
+#define log_error(...) wb_log(LOG_ERROR, "ERROR", __VA_ARGS__)
+
+void do_wb_log(LogLevel logLevel, const char* logLevelStr, const char* file, const char* message, ...);
 void __attribute__((noreturn)) error(const char *message, ...);
 void showPQerror(PGconn *mc, char *message);
 
@@ -22,7 +40,7 @@ void wbfree(void *ptr);
 
 #define Assert(x) do {\
 		if (!(x)) {\
-			wb_info("Assert failure at %s:%d", __FILE__, __LINE__);\
+			log_info("Assert failure at %s:%d", __FILE__, __LINE__);\
 		}\
 } while(0)
 

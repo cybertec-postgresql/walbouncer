@@ -1,8 +1,10 @@
 #include <arpa/inet.h>
 #include <stdarg.h>
 #include <string.h>
-
+#include <time.h>
 #include "wbutils.h"
+
+LogLevel loggingLevel = LOG_INFO;
 
 /* Error reporting functions */
 
@@ -16,9 +18,26 @@ void error(const char *message, ...)
 	exit(1);
 }
 
+void do_wb_log(LogLevel logLevel, const char* logLevelStr, const char *file, const char *message, ...)
+{
+	time_t now;
+	char nowStr[20];
+	va_list args;
+	va_start(args, message);
+
+	time(&now);
+
+	strftime(nowStr, 20, "%Y-%m-%d %H:%M:%S", localtime(&now));
+
+	fprintf (stderr, "[%s] %s %s: ", nowStr, file, logLevelStr);
+	vfprintf (stderr, message, args);
+	fprintf (stderr, "\n");
+	va_end(args);
+}
+
 void showPQerror(PGconn *mc, char *message)
 {
-	printf("%s: %s\n", message, PQerrorMessage(mc));
+	log_error("%s: %s", message, PQerrorMessage(mc));
 	exit(1);
 }
 

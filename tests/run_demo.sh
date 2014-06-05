@@ -104,7 +104,7 @@ EOF
 start_walbouncer()
 {
     msg "Starting walbouncer on port 5433 (output in walbouncer.log)"
-    nohup $WALBOUNCER -p 5433 > walbouncer.log &    
+    nohup $WALBOUNCER -p 5433 -vv > walbouncer.log &
 }
 
 start_slave()

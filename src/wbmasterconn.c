@@ -49,7 +49,7 @@ WbMcStartStreaming(MasterConn *master, XLogRecPtr pos, TimeLineID tli)
 	char cmd[256];
 	PGresult *res;
 
-	wb_info("Start streaming from master at %X/%X", FormatRecPtr(pos));
+	log_info("Start streaming from master at %X/%X", FormatRecPtr(pos));
 
 	snprintf(cmd, sizeof(cmd),
 			"START_REPLICATION %X/%X TIMELINE %u",
@@ -126,7 +126,7 @@ WbMcEndStreaming(MasterConn *master, TimeLineID *next_tli)
 	/* Verify that there are no more results */
 	res = PQgetResult(mc);
 	while (res!=NULL) {
-		wb_info("Status: %d", PQresultStatus(res));
+		log_debug1("Status while ending streaming: %d", PQresultStatus(res));
 		res = PQgetResult(mc);
 	}
 
@@ -194,25 +194,25 @@ WbMcReceiveWalMessage(MasterConn *master, int timeout, ReplMessage *msg)
 					msg->data = buf+25;
 					msg->nextPageBoundary = (XLOG_BLCKSZ - msg->dataStart) & (XLOG_BLCKSZ-1);
 
-					wb_info("Received %u byte WAL block\n", len-25);
-					wb_info("   dataStart: %X/%X\n", FormatRecPtr(msg->dataStart));
-					wb_info("   walEnd: %lu\n", msg->walEnd);
-					wb_info("   sendTime: %lu\n", msg->sendTime);
+					log_debug1("Received %u byte WAL block", len-25);
+					log_debug1("   dataStart: %X/%X", FormatRecPtr(msg->dataStart));
+					log_debug1("   walEnd: %X/%X", FormatRecPtr(msg->walEnd));
+					log_debug1("   sendTime: %lu", msg->sendTime);
 
 					WbMcProcessWalsenderMessage(master, msg);
 					break;
 				}
 			case 'k':
 				{
-					wb_info("Keepalive message\n");
 					msg->type = MSG_KEEPALIVE;
 					msg->walEnd = fromnetwork64(buf+1);
 					msg->sendTime = fromnetwork64(buf+9);
 					msg->replyRequested = *(buf+17);
 
-					wb_info("   walEnd: %lu\n", msg->walEnd);
-					wb_info("   sendTime: %lu\n", msg->sendTime);
-					wb_info("   replyRequested: %d\n", msg->replyRequested);
+					log_debug1("Received keepalive message");
+					log_debug1("   walEnd: %X/%X", FormatRecPtr(msg->walEnd));
+					log_debug1("   sendTime: %lu", msg->sendTime);
+					log_debug1("   replyRequested: %d", msg->replyRequested);
 					WbMcProcessWalsenderMessage(master, msg);
 
 					if (msg->replyRequested)
@@ -367,7 +367,11 @@ WbMcSendReply(MasterConn *master, bool force, bool requestReply)
 		 (uint32) (applyPtr >> 32), (uint32) applyPtr,
 		 requestReply ? " (reply requested)" : "");*/
 
-	wb_info("Send reply: %lu %lu %lu %d\n", writePtr, flushPtr, applyPtr, requestReply);
+	log_debug1("Send reply to master: write %X/%X flush %X/%X apply %X/%X%s",
+			FormatRecPtr(writePtr),
+			FormatRecPtr(flushPtr),
+			FormatRecPtr(applyPtr),
+			requestReply ? " (reply requested" : "");
 	WbMcSend(master, reply_message, 34);
 }
 
@@ -424,7 +428,7 @@ WbMcResolveTablespaceOids(const char *conninfo, const char* tablespace_names)
 	for (i = 0; i < oidcount; i++)
 	{
 		char *oid = PQgetvalue(res, i, 0);
-		wb_info("Found tablespace oid %s %d", oid, atoi(oid));
+		log_debug1("Found tablespace oid %s %d", oid, atoi(oid));
 		oids[i] = atoi(oid);
 	}
 	PQclear(res);

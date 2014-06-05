@@ -27,7 +27,7 @@ OpenServerSocket(char *port)
 	int yes=1;
 	XfSocket sock = wballoc(sizeof(XfSocketStruct));
 
-	wb_info("Starting socket on port %s", port);
+	log_info("Starting socket on port %s", port);
 
 	memset(&hints, 0, sizeof(hints));
 	hints.ai_family = AF_UNSPEC;
@@ -36,7 +36,7 @@ OpenServerSocket(char *port)
 
 	if ((status = getaddrinfo(NULL, port, &hints, &res)) != 0) {
 		char *errmsg;
-	    if (asprintf(&errmsg, "getaddrinfo error: %s\n", gai_strerror(status)) < 0)
+	    if (asprintf(&errmsg, "getaddrinfo error: %s", gai_strerror(status)) < 0)
 	    	error("Out of memory while reporting error");
 	    error(errmsg);
 	}
@@ -63,7 +63,6 @@ ConnCreate(XfSocket server)
 	socklen_t addr_size;
 	XfConn conn = malloc(sizeof(XfPortStruct));
 
-	wb_info("Waiting for connections.");
 	conn->fd = accept(server->fd, (struct sockaddr *) &their_addr, &addr_size);
 
 	conn->recvBuffer = wballoc(RECV_BUFFER_SIZE);
@@ -79,6 +78,8 @@ ConnCreate(XfSocket server)
 	conn->lastSend = 0;
 	conn->copyDoneSent = false;
 	conn->copyDoneReceived = false;
+
+	log_info("Waiting for connections.");
 
 	return conn;
 }
@@ -108,7 +109,7 @@ ConnFlush(XfConn conn)
 	while (remaining > 0)
 	{
 		int r;
-		wb_info(" - Sending %d\n", remaining);
+		log_debug1("Conn: Sending to client %d bytes of data", remaining);
 		//hexdump(conn->sendBuffer+sent, remaining);
 		//printf("\n");
 		r = send(conn->fd, conn->sendBuffer + sent, remaining, 0);
@@ -125,6 +126,8 @@ ConnFlush(XfConn conn)
 			return EOF;
 		}
 		sent += r;
+		if (r < remaining)
+			log_debug1("Sent out %d/%d bytes", sent, remaining);
 		remaining -= r;
 	}
 
@@ -373,7 +376,7 @@ ConnEndMessage(XfConn conn)
 	Assert(conn->sendBufMsgLenPtr > 0);
 
 	n32 = htonl((uint32) (conn->sendBufLen - conn->sendBufMsgLenPtr));
-	wb_info("msg %c len: %d\n", conn->sendBuffer[conn->sendBufMsgLenPtr-1], (conn->sendBufLen - conn->sendBufMsgLenPtr));
+	log_debug3("Buffering message %c with length %d", conn->sendBuffer[conn->sendBufMsgLenPtr-1], (conn->sendBufLen - conn->sendBufMsgLenPtr));
 
 	// TODO: handle unaligned access
 	*((uint32*)(conn->sendBuffer + conn->sendBufMsgLenPtr)) = n32;

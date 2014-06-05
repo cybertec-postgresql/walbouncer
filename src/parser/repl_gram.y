@@ -36,8 +36,8 @@ ReplicationCommand *replication_parse_result;
  * if possible, so there's not really much problem anyhow, at least if
  * you're building with gcc.
  */
-#define YYMALLOC xfalloc
-#define YYFREE   xffree
+#define YYMALLOC wballoc
+#define YYFREE   wbfree
 
 %}
 

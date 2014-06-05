@@ -326,7 +326,6 @@ ReplDataRemainingInSegment(ReplMessage *msg)
 {
 	XLogRecPtr curPos = msg->dataStart + msg->dataPtr;
 	XLogRecPtr segEnd = (curPos + XLogSegSize) & (~(XLogSegSize - 1));
-	wb_info("Curpos %X/%X segEnd %X/%X", FormatRecPtr(curPos), FormatRecPtr(segEnd));
 	return segEnd - curPos;
 }
 
@@ -418,7 +417,7 @@ NeedToFilter(FilterData *fl, RelFileNode *node)
 		if (node->spcNode == *tblspc_oid)
 			return false;
 	}
-	wb_info("Filtering data in tablespace %d", node->spcNode);
+	log_debug2("Filtering data in tablespace %d", node->spcNode);
 	return true;
 }
 

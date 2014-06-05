@@ -45,7 +45,9 @@ static void usage()
 	printf("Options:\n");
 	printf("  -?, --help                Print this message\n");
 	printf("  -h, --host=HOST           Connect to master on this host. Default localhost\n");
+	printf("  -P, --masterport=PORT     Connect to master on this port. Default 5432\n");
 	printf("  -p, --port=PORT           Run proxy on this port. Default 5433\n");
+	printf("  -v, --verbose             Output additional debugging information\n");
 
 }
 
@@ -62,12 +64,13 @@ main(int argc, char **argv)
 				{"port", required_argument, 0, 'p'},
 				{"host", required_argument, 0, 'h'},
 				{"masterport", required_argument, 0, 'P'},
+				{"verbose", no_argument, 0, 'v'},
 				{"help", no_argument, 0, '?'},
 				{0,0,0,0}
 		};
 		int option_index = 0;
 
-		c = getopt_long(argc, argv, "p:h?",
+		c = getopt_long(argc, argv, "p:h:P:v?",
 				long_options, &option_index);
 
 		if (c == -1)
@@ -83,6 +86,10 @@ main(int argc, char **argv)
 			break;
 		case 'P':
 			master_port = wbstrdup(optarg);
+			break;
+		case 'v':
+			if (loggingLevel > LOG_LOWEST_LEVEL)
+				loggingLevel--;
 			break;
 		case '?':
 			usage();
