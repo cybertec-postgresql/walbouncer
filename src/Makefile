@@ -1,6 +1,6 @@
 all: walbouncer
 
-CFLAGS=-O2 -Wall -Werror
+CFLAGS=-O2 -Wall -Werror -g -fno-omit-frame-pointer
 
 pglibdir = $(shell pg_config --libdir)
 pgincludedir = $(shell pg_config --includedir)
