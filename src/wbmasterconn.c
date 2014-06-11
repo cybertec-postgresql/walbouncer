@@ -12,7 +12,6 @@
 static bool libpq_select(MasterConn *master, int timeout_ms);
 static void WbMcProcessWalsenderMessage(MasterConn *master, ReplMessage *msg);
 static void WbMcSend(MasterConn *master, const char *buffer, int nbytes);
-static void WbMcSendReply(MasterConn *master, bool force, bool requestReply);
 static int WbMcReceiveWal(MasterConn *master, int timeout, char **buffer);
 
 struct MasterConn {
@@ -215,8 +214,9 @@ WbMcReceiveWalMessage(MasterConn *master, int timeout, ReplMessage *msg)
 					log_debug1("   replyRequested: %d", msg->replyRequested);
 					WbMcProcessWalsenderMessage(master, msg);
 
-					if (msg->replyRequested)
-						WbMcSendReply(master, true, false);
+					// TODO: fix this
+					//if (msg->replyRequested)
+						//WbMcSendReply(master, true, false);
 					break;
 				}
 		}
@@ -306,14 +306,13 @@ WbMcSend(MasterConn *master, const char *buffer, int nbytes)
 		showPQerror(mc, "could not send data to WAL stream");
 }
 
-static void
-WbMcSendReply(MasterConn *master, bool force, bool requestReply)
+void
+WbMcSendReply(MasterConn *master, StandbyMessage *reply, bool force, bool requestReply)
 {
-	XLogRecPtr writePtr = master->latestWalEnd;
-	XLogRecPtr flushPtr = master->latestWalEnd;
-	XLogRecPtr	applyPtr = master->latestWalEnd;
-	TimestampTz sendTime = master->latestSendTime;
-	TimestampTz now;
+	XLogRecPtr writePtr = reply->writePtr;
+	XLogRecPtr flushPtr = reply->flushPtr;
+	XLogRecPtr	applyPtr = reply->applyPtr;
+	TimestampTz sendTime = reply->sendTime;
 	char reply_message[1+4*8+1+1];
 
 	/*
@@ -322,9 +321,6 @@ WbMcSendReply(MasterConn *master, bool force, bool requestReply)
 
 	if (!force && wal_receiver_status_interval <= 0)
 		return;*/
-
-	/* Get current timestamp. */
-	now = master->latestSendTime;//GetCurrentTimestamp();
 
 	/*
 	 * We can compare the write and flush positions to the last message we
@@ -341,7 +337,6 @@ WbMcSendReply(MasterConn *master, bool force, bool requestReply)
 		&& !TimestampDifferenceExceeds(sendTime, now,
 									   wal_receiver_status_interval * 1000))
 		return;*/
-	sendTime = now;
 
 	/* Construct a new message */
 
@@ -360,12 +355,6 @@ WbMcSendReply(MasterConn *master, bool force, bool requestReply)
 	//pq_sendbyte(&reply_message, requestReply ? 1 : 0);
 	reply_message[33] = requestReply ? 1 : 0;
 
-	/* Send it */
-	/*elog(DEBUG2, "sending write %X/%X flush %X/%X apply %X/%X%s",
-		 (uint32) (writePtr >> 32), (uint32) writePtr,
-		 (uint32) (flushPtr >> 32), (uint32) flushPtr,
-		 (uint32) (applyPtr >> 32), (uint32) applyPtr,
-		 requestReply ? " (reply requested)" : "");*/
 
 	log_debug1("Send reply to master: write %X/%X flush %X/%X apply %X/%X%s",
 			FormatRecPtr(writePtr),

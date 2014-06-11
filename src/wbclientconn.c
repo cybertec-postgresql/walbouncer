@@ -617,6 +617,12 @@ again:
 		if (conn->copyDoneSent && conn->copyDoneReceived)
 			break;
 
+		if (!conn->replyForwarded)
+		{
+			WbMcSendReply(master, &(conn->lastReply), false, false);
+			conn->replyForwarded = true;
+		}
+
 		if (WbMcReceiveWalMessage(master, NAPTIME, msg))
 		{
 			do {
@@ -806,29 +812,27 @@ WbCCProcessReplyMessage(XfConn conn)
 static void
 WbCCProcessStandbyReplyMessage(XfConn conn, XfMessage *msg)
 {
-	XLogRecPtr	writePtr,
-				flushPtr,
-				applyPtr;
-	bool		replyRequested;
+	StandbyMessage *reply = &(conn->lastReply);
 
 	/* the caller already consumed the msgtype byte */
-	writePtr = fromnetwork64(msg->data + 1);
-	flushPtr = fromnetwork64(msg->data + 9);
-	applyPtr = fromnetwork64(msg->data + 17);
-	(void) fromnetwork64(msg->data + 25);		/* sendTime; not used ATM */
-	replyRequested = msg->data[33];
+	reply->writePtr = fromnetwork64(msg->data + 1);
+	reply->flushPtr = fromnetwork64(msg->data + 9);
+	reply->applyPtr = fromnetwork64(msg->data + 17);
+	reply->sendTime = fromnetwork64(msg->data + 25);		/* sendTime; not used ATM */
+	reply->replyRequested = msg->data[33];
 
 	log_debug1("Standby reply msg: write %X/%X flush %X/%X apply %X/%X%s",
-		 (uint32) (writePtr >> 32), (uint32) writePtr,
-		 (uint32) (flushPtr >> 32), (uint32) flushPtr,
-		 (uint32) (applyPtr >> 32), (uint32) applyPtr,
-		 replyRequested ? " (reply requested)" : "");
+		 FormatRecPtr(reply->writePtr),
+		 FormatRecPtr(reply->flushPtr),
+		 FormatRecPtr(reply->applyPtr),
+		 reply->replyRequested ? " (reply requested)" : "");
 
 	/* Send a reply if the standby requested one. */
-	if (replyRequested)
+	if (reply->replyRequested)
 		WbCCSendKeepalive(conn, false);
 
 	//TODO: send reply message forward
+	conn->replyForwarded = false;
 }
 
 static void

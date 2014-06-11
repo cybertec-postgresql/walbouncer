@@ -10,6 +10,14 @@ typedef struct {
 typedef XfSocketStruct* XfSocket;
 
 typedef struct {
+	XLogRecPtr writePtr;
+	XLogRecPtr flushPtr;
+	XLogRecPtr applyPtr;
+	TimestampTz sendTime;
+	bool		replyRequested;
+} StandbyMessage;
+
+typedef struct {
 	int fd;
 	char *recvBuffer;
 	int recvPointer;
@@ -40,6 +48,10 @@ typedef struct {
 	TimestampTz lastSend;
 	bool copyDoneSent;
 	bool copyDoneReceived;
+
+	// Receive state
+	StandbyMessage lastReply;
+	bool	replyForwarded;
 } XfPortStruct;
 typedef XfPortStruct* XfConn;
 

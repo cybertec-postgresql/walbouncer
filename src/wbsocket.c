@@ -61,7 +61,7 @@ ConnCreate(XfSocket server)
 {
 	struct sockaddr_storage their_addr;
 	socklen_t addr_size;
-	XfConn conn = malloc(sizeof(XfPortStruct));
+	XfConn conn = wballoc0(sizeof(XfPortStruct));
 
 	conn->fd = accept(server->fd, (struct sockaddr *) &their_addr, &addr_size);
 
@@ -78,6 +78,8 @@ ConnCreate(XfSocket server)
 	conn->lastSend = 0;
 	conn->copyDoneSent = false;
 	conn->copyDoneReceived = false;
+
+	conn->replyForwarded = true;
 
 	log_info("Waiting for connections.");
 

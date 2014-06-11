@@ -2,6 +2,7 @@
 #define _WB_MASTERCONN_H 1
 
 #include "wbglobals.h"
+#include "wbsocket.h"
 
 typedef enum {
 	MSG_NOTHING,
@@ -31,6 +32,7 @@ MasterConn* WbMcOpenConnection(const char *conninfo);
 bool WbMcStartStreaming(MasterConn *master, XLogRecPtr pos, TimeLineID tli);
 void WbMcEndStreaming(MasterConn *master, TimeLineID *next_tli);
 bool WbMcReceiveWalMessage(MasterConn *master, int timeout, ReplMessage *msg);
+void WbMcSendReply(MasterConn *master, StandbyMessage *reply, bool force, bool requestReply);
 bool WbMcIdentifySystem(MasterConn* master,
 		char** primary_sysid, char** primary_tli, char** primary_xpos);
 Oid * WbMcResolveTablespaceOids(const char *conninfo, const char* tablespace_names);
