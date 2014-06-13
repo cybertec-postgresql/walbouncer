@@ -29,9 +29,11 @@ typedef struct {
 typedef struct MasterConn MasterConn;
 
 MasterConn* WbMcOpenConnection(const char *conninfo);
+void WbMcCloseConnection(MasterConn *master);
+int WbMcGetSocket(MasterConn *master);
 bool WbMcStartStreaming(MasterConn *master, XLogRecPtr pos, TimeLineID tli);
 void WbMcEndStreaming(MasterConn *master, TimeLineID *next_tli);
-bool WbMcReceiveWalMessage(MasterConn *master, int timeout, ReplMessage *msg);
+bool WbMcReceiveWalMessage(MasterConn *master, ReplMessage *msg);
 void WbMcSendReply(MasterConn *master, StandbyMessage *reply, bool force, bool requestReply);
 bool WbMcIdentifySystem(MasterConn* master,
 		char** primary_sysid, char** primary_tli, char** primary_xpos);

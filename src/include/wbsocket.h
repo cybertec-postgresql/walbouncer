@@ -28,6 +28,7 @@ typedef struct {
 	int sendBufSize;
 	int sendBufLen;
 	int sendBufMsgLenPtr;
+	int sendBufFlushPtr;
 
 	ProtocolVersion proto;
 
@@ -60,20 +61,31 @@ typedef struct {
 	char data[1];
 } XfMessage;
 
+typedef enum {
+	FLUSH_IMMEDIATE,
+	FLUSH_ASYNC
+} ConnFlushMode;
+
 XfSocket
 OpenServerSocket(char *port);
 
 XfConn
 ConnCreate(XfSocket server);
 
+bool
+ConnHasDataToFlush(XfConn conn);
+
 int
-ConnFlush(XfConn conn);
+ConnFlush(XfConn conn, ConnFlushMode mode);
 
 void
 CloseConn(XfConn);
 
 void
 CloseSocket(XfSocket sock);
+
+int
+ConnGetSocket(XfConn conn);
 
 void
 ConnBeginMessage(XfConn conn, char type);

@@ -9,10 +9,9 @@
 
 #include "libpq-fe.h"
 
-static bool libpq_select(MasterConn *master, int timeout_ms);
 static void WbMcProcessWalsenderMessage(MasterConn *master, ReplMessage *msg);
 static void WbMcSend(MasterConn *master, const char *buffer, int nbytes);
-static int WbMcReceiveWal(MasterConn *master, int timeout, char **buffer);
+static int WbMcReceiveWal(MasterConn *master, char **buffer);
 
 struct MasterConn {
 	PGconn* conn;
@@ -39,6 +38,12 @@ WbMcCloseConnection(MasterConn *master)
 		PQfreemem(master->recvBuf);
 	PQfinish(master->conn);
 	wbfree(master);
+}
+
+int
+WbMcGetSocket(MasterConn *master)
+{
+	return PQsocket(master->conn);
 }
 
 bool
@@ -134,48 +139,12 @@ WbMcEndStreaming(MasterConn *master, TimeLineID *next_tli)
 
 }
 
-/*
- * Wait until we can read WAL stream, or timeout.
- *
- * Returns true if data has become available for reading, false if timed out
- * or interrupted by signal.
- *
- * This is based on pqSocketCheck.
- */
-static bool
-libpq_select(MasterConn *master, int timeout_ms)
-{
-	PGconn *mc = master->conn;
-	int			ret;
-
-	Assert(mc != NULL);
-	if (PQsocket(mc) < 0)
-		error("socket not open");
-
-	/* We use poll(2) if available, otherwise select(2) */
-	{
-		struct pollfd input_fd;
-
-		input_fd.fd = PQsocket(mc);
-		input_fd.events = POLLIN | POLLERR;
-		input_fd.revents = 0;
-
-		ret = poll(&input_fd, 1, timeout_ms);
-	}
-
-	if (ret == 0 || (ret < 0 && errno == EINTR))
-		return false;
-	if (ret < 0)
-		error("select() failed: %m");
-	return true;
-}
-
 bool
-WbMcReceiveWalMessage(MasterConn *master, int timeout, ReplMessage *msg)
+WbMcReceiveWalMessage(MasterConn *master, ReplMessage *msg)
 {
 	int len;
 	char *buf;
-	len = WbMcReceiveWal(master, timeout, &buf);
+	len = WbMcReceiveWal(master, &buf);
 	if (len > 0)
 	{
 		switch (buf[0])
@@ -229,7 +198,7 @@ WbMcReceiveWalMessage(MasterConn *master, int timeout, ReplMessage *msg)
 
 
 static int
-WbMcReceiveWal(MasterConn *master, int timeout, char **buffer)
+WbMcReceiveWal(MasterConn *master, char **buffer)
 {
 	PGconn *mc = master->conn;
 	int			rawlen;
@@ -242,16 +211,6 @@ WbMcReceiveWal(MasterConn *master, int timeout, char **buffer)
 	rawlen = PQgetCopyData(mc, &(master->recvBuf), 1);
 	if (rawlen == 0)
 	{
-		/*
-		 * No data available yet. If the caller requested to block, wait for
-		 * more data to arrive.
-		 */
-		if (timeout > 0)
-		{
-			if (!libpq_select(master, timeout))
-				return 0;
-		}
-
 		if (PQconsumeInput(mc) == 0)
 			showPQerror(mc, "could not receive data from WAL stream");
 

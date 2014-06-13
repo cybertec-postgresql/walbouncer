@@ -2,6 +2,7 @@
 
 #include <arpa/inet.h>
 #include <errno.h>
+#include <poll.h>
 #include <string.h>
 
 #include "wbsocket.h"
@@ -12,7 +13,7 @@
 #include "parser/parser.h"
 
 #define MAX_CONNINFO_LEN 4000
-#define NAPTIME 100
+#define NAPTIME 60000
 
 typedef struct {
 	int qtype;
@@ -28,6 +29,7 @@ static void WbCCBeginReportingGUCOptions(XfConn conn, MasterConn* master);
 static void WbCCReportGuc(XfConn conn, MasterConn* master, char *name);
 static void WbCCExecCommand(XfConn conn, MasterConn *master, char *query_string);
 static void WbCCExecIdentifySystem(XfConn conn, MasterConn *master);
+static bool WbCCWaitForData(XfConn conn, MasterConn *master);
 static void WbCCExecStartPhysical(XfConn conn, MasterConn *master, ReplicationCommand *cmd);
 static void WbCCExecTimeline();
 static Oid* WbCCFindTablespaceOids(XfConn conn);
@@ -68,7 +70,7 @@ WbCCPerformAuthentication(XfConn conn)
 		ConnBeginMessage(conn, 'R');
 		ConnSendInt(conn, (int32) AUTH_REQ_OK, sizeof(int32));
 		ConnEndMessage(conn);
-		ConnFlush(conn);
+		ConnFlush(conn, FLUSH_IMMEDIATE);
 	}
 	else
 	{
@@ -328,7 +330,7 @@ WbCCCommandLoop(XfConn conn)
 				ForbiddenInWalBouncer();
 				break;
 			case 'H':
-				ConnFlush(conn);
+				ConnFlush(conn, FLUSH_IMMEDIATE);
 				break;
 			case 'S':
 				send_ready_for_query = true;
@@ -382,7 +384,7 @@ WbCCSendReadyForQuery(XfConn conn)
 	ConnBeginMessage(conn, 'Z');
 	ConnSendInt(conn, 'I', 1);
 	ConnEndMessage(conn);
-	ConnFlush(conn);
+	ConnFlush(conn, FLUSH_IMMEDIATE);
 }
 
 static MasterConn*
@@ -583,6 +585,55 @@ WbCCExecIdentifySystem(XfConn conn, MasterConn *master)
 	wbfree(primary_xpos);
 }
 
+/*
+ * Wait for new data on master or slave connections depending on state.
+ * Returns true if anything interesting happened.
+ */
+static bool
+WbCCWaitForData(XfConn conn, MasterConn *master)
+{
+	struct pollfd fds[2];
+	int ret;
+	int numfds = 0;
+
+	fds[numfds].fd = ConnGetSocket(conn);
+	fds[numfds].events = POLLIN | POLLERR;
+	fds[numfds].revents = 0;
+	numfds++;
+
+	if (ConnHasDataToFlush(conn))
+	{
+		/*
+		 * If we are in process of flushing out a message to slave we only
+		 * care if we can resume sending or the slave has sent us a reply
+		 * message we need to relay back to the master.
+		 *
+		 * We don't care about failed master connections at this point as we
+		 * want to finish sending processed WAL out.
+		 **/
+		 fds[0].events |= POLLOUT;
+	} else {
+		/*
+		 * If we are finished forwarding data to the the slave we want to get
+		 * a new message from the master.
+		 */
+		fds[numfds].fd = WbMcGetSocket(master);
+		if (fds[numfds].fd == -1)
+			error("Master socket has been closed");
+		fds[numfds].events = POLLIN | POLLERR;
+		fds[numfds].revents = 0;
+		numfds++;
+	}
+
+	log_debug2("Waiting up to %dms on %d file descriptors", NAPTIME, numfds);
+	ret = poll(fds, numfds, NAPTIME);
+
+	if (ret == 0 || (ret < 0 && errno == EINTR))
+		return false;
+
+	return true;
+}
+
 static void
 WbCCExecStartPhysical(XfConn conn, MasterConn *master, ReplicationCommand *cmd)
 {
@@ -610,12 +661,10 @@ again:
 
 	while (!endofwal)
 	{
+		if (!WbCCWaitForData(conn, master))
+			continue;
+
 		WbCCProcessRepliesIfAny(conn);
-
-		ConnFlush(conn);
-
-		if (conn->copyDoneSent && conn->copyDoneReceived)
-			break;
 
 		if (!conn->replyForwarded)
 		{
@@ -623,17 +672,25 @@ again:
 			conn->replyForwarded = true;
 		}
 
-		if (WbMcReceiveWalMessage(master, NAPTIME, msg))
+		if (ConnHasDataToFlush(conn))
 		{
-			do {
-				if (msg->type == MSG_END_OF_WAL)
-				{
+			ConnFlush(conn, FLUSH_ASYNC);
+			continue;
+		}
+
+		if (conn->copyDoneSent && conn->copyDoneReceived)
+			break;
+
+		if (WbMcReceiveWalMessage(master, msg))
+		{
+			switch (msg->type)
+			{
+				case MSG_END_OF_WAL:
 					// TODO: handle end of wal
 					log_info("End of WAL");
 					endofwal = true;
 					break;
-				}
-				if (msg->type == MSG_WAL_DATA)
+				case MSG_WAL_DATA:
 				{
 					XLogRecPtr restartPos;
 					if (!WbFProcessWalDataBlock(msg, fl, &restartPos))
@@ -645,8 +702,16 @@ again:
 						goto again;
 					}
 					WbCCSendWalBlock(conn, msg, fl);
+					break;
 				}
-			} while (WbMcReceiveWalMessage(master, 0, msg));
+				case MSG_KEEPALIVE:
+					// Keepalive from master is currently handled by the
+					// receive func.
+					break;
+				case MSG_NOTHING:
+					// Nothing received, we loop back around and wait for data.
+					break;
+			}
 		}
 	}
 	{
@@ -654,35 +719,6 @@ again:
 		WbMcEndStreaming(master, &tli);
 	}
 
-	// query master server for data
-	// send CopyBoth to client
-	//     'W' b0 h0
-	// flush
-	// enter loop
-	//     fetch data from master
-	//		handle master keepalives
-	//     process replies from client
-	//			copy done
-	//				send 'c'
-	//			data
-	//				replication status
-	//				hot standby feedback
-	//			exit
-	//	   filter data
-	//		check for timeout
-	//	   push data out
-	//			need to ensure aligned on record or page boundary
-	//			'd' 'w' l(dataStart) l(walEnd) l(sendTime) s[WALdata]
-	//			send keepalive if necessary
-	//				'd' 'k' l(sentPtr) l(sentTime) b(RequestReply)
-	// sendTimelineIsHistoric
-	//	'T' h(2)
-	//		s("next_tli") i(0) h(0) i(INT8OID) h(-1) i(0) h(2)
-	//		s("next_tli_startpos") i(0) h(0) i(TEXTOID) h(-1) i(0) h(2)
-	//	'D' h(2)
-	//		i(strlen(tli_str)) p(tli_str)
-	//		i(strlen(startpos_str)) p(startpos_str)
-	// pq_puttextmessage('C', "START_STREAMING")
 	WbFFreeProcessingState(fl);
 	wbfree(msg);
 }
@@ -831,7 +867,6 @@ WbCCProcessStandbyReplyMessage(XfConn conn, XfMessage *msg)
 	if (reply->replyRequested)
 		WbCCSendKeepalive(conn, false);
 
-	//TODO: send reply message forward
 	conn->replyForwarded = false;
 }
 
@@ -849,7 +884,6 @@ WbCCSendKeepalive(XfConn conn, bool request_reply)
 	ConnSendInt64(conn, conn->lastSend);
 	ConnSendInt(conn, request_reply ? 1 : 0, 1);
 	ConnEndMessage(conn);
-	ConnFlush(conn);
 }
 
 static void
@@ -881,7 +915,7 @@ WbCCSendCopyBothResponse(XfConn conn)
 	ConnSendInt(conn, 0, 1);
 	ConnSendInt(conn, 0, 2);
 	ConnEndMessage(conn);
-	ConnFlush(conn);
+	ConnFlush(conn, FLUSH_IMMEDIATE);
 }
 
 static void
@@ -961,5 +995,5 @@ WbCCSendWalBlock(XfConn conn, ReplMessage *msg, FilterData *fl)
 
 	conn->sentPtr = msg->dataStart + msg->dataLen - buffered;
 	conn->lastSend = msg->sendTime;
-	ConnFlush(conn);
+	ConnFlush(conn, FLUSH_ASYNC);
 }

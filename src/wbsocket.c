@@ -73,6 +73,7 @@ ConnCreate(XfSocket server)
 	conn->sendBufSize = SEND_BUFFER_INIT_SIZE;
 	conn->sendBufLen = 0;
 	conn->sendBufMsgLenPtr = -1;
+	conn->sendBufFlushPtr = 0;
 
 	conn->sentPtr = 0;
 	conn->lastSend = 0;
@@ -86,43 +87,45 @@ ConnCreate(XfSocket server)
 	return conn;
 }
 
-void
-hexdump(char *buf, int amount)
+bool
+ConnHasDataToFlush(XfConn conn)
 {
-	int i;
-	for (i = 0; i < amount; i++)
-	{
-		if ((i & 0xF) == 0)
-			fprintf(stderr, "%04x: ", i);
-		fprintf(stderr, "%02x ", (unsigned char) buf[i]);
-		if ((i & 0xF) == 0xF)
-			fprintf(stderr, "\n");
-	}
-
+	return conn->sendBufFlushPtr < conn->sendBufLen;
 }
 
 int
-ConnFlush(XfConn conn)
+ConnFlush(XfConn conn, ConnFlushMode mode)
 {
-	int sent = 0;
-	int remaining;
+	int sent = conn->sendBufFlushPtr;
+	int remaining = conn->sendBufLen - conn->sendBufFlushPtr;
+	int flags = 0;
+
+	// We should not be in the middle of constructing a message while we are
+	// flushing WAL.
 	Assert(conn->sendBufMsgLenPtr == -1);
-	remaining = conn->sendBufLen;
+
+	if (mode == FLUSH_ASYNC)
+		flags |= MSG_DONTWAIT;
+
 	while (remaining > 0)
 	{
 		int r;
 		log_debug1("Conn: Sending to client %d bytes of data", remaining);
-		//hexdump(conn->sendBuffer+sent, remaining);
-		//printf("\n");
-		r = send(conn->fd, conn->sendBuffer + sent, remaining, 0);
+
+		r = send(conn->fd, conn->sendBuffer + sent, remaining, flags);
 		if (r <= 0)
 		{
 			if (errno == EINTR)
 				continue;
 
-			if (errno == EAGAIN ||
-				errno == EWOULDBLOCK)
-				error("Socket is supposed to be blocking here");
+			if (errno == EAGAIN || errno == EWOULDBLOCK)
+			{
+				if (mode != FLUSH_ASYNC)
+					error("Socket returned %d on a blocking send call", errno);
+				log_debug1("Sending out data to client would have blocked.");
+				conn->sendBufFlushPtr = sent;
+				return 0;
+			}
 
 			error("Could not send data to client");
 			return EOF;
@@ -132,7 +135,7 @@ ConnFlush(XfConn conn)
 			log_debug1("Sent out %d/%d bytes", sent, remaining);
 		remaining -= r;
 	}
-
+	conn->sendBufFlushPtr = 0;
 	conn->sendBufLen = 0;
 	conn->sendBufMsgLenPtr = -1;
 
@@ -298,6 +301,12 @@ ConnEnsureFreeSpace(XfConn conn, int amount)
 		conn->sendBuffer = rewballoc(conn->sendBuffer, new_size);
 		conn->sendBufSize = new_size;
 	}
+}
+
+int
+ConnGetSocket(XfConn conn)
+{
+	return conn->fd;
 }
 
 void
