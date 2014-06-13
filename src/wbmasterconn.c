@@ -270,48 +270,15 @@ WbMcSendReply(MasterConn *master, StandbyReplyMessage *reply, bool force, bool r
 	XLogRecPtr flushPtr = reply->flushPtr;
 	XLogRecPtr	applyPtr = reply->applyPtr;
 	TimestampTz sendTime = reply->sendTime;
-	char reply_message[1+4*8+1+1];
+	char reply_message[1+4*8+1];
 
-	/*
-	 * If the user doesn't want status to be reported to the master, be sure
-	 * to exit before doing anything at all.
-
-	if (!force && wal_receiver_status_interval <= 0)
-		return;*/
-
-	/*
-	 * We can compare the write and flush positions to the last message we
-	 * sent without taking any lock, but the apply position requires a spin
-	 * lock, so we don't check that unless something else has changed or 10
-	 * seconds have passed.  This means that the apply log position will
-	 * appear, from the master's point of view, to lag slightly, but since
-	 * this is only for reporting purposes and only on idle systems, that's
-	 * probably OK.
-	 */
-	/*if (!force
-		&& writePtr == LogstreamResult.Write
-		&& flushPtr == LogstreamResult.Flush
-		&& !TimestampDifferenceExceeds(sendTime, now,
-									   wal_receiver_status_interval * 1000))
-		return;*/
-
-	/* Construct a new message */
-
-	//resetStringInfo(&reply_message);
 	memset(reply_message, 0, sizeof(reply_message));
-	//pq_sendbyte(&reply_message, 'r');
 	reply_message[0] = 'r';
-	//pq_sendint64(&reply_message, writePtr);
 	write64(&(reply_message[1]), writePtr);
-	//pq_sendint64(&reply_message, flushPtr);
 	write64(&(reply_message[9]), flushPtr);
-	//pq_sendint64(&reply_message, applyPtr);
 	write64(&(reply_message[17]), applyPtr);
-	//pq_sendint64(&reply_message, GetCurrentIntegerTimestamp());
 	write64(&(reply_message[25]), sendTime);
-	//pq_sendbyte(&reply_message, requestReply ? 1 : 0);
 	reply_message[33] = requestReply ? 1 : 0;
-
 
 	log_debug1("Send reply to master: write %X/%X flush %X/%X apply %X/%X sendtime %s%s",
 			FormatRecPtr(writePtr),
@@ -319,7 +286,7 @@ WbMcSendReply(MasterConn *master, StandbyReplyMessage *reply, bool force, bool r
 			FormatRecPtr(applyPtr),
 			timestamptz_to_str(sendTime),
 			requestReply ? " (reply requested" : "");
-	WbMcSend(master, reply_message, 34);
+	WbMcSend(master, reply_message, sizeof(reply_message));
 }
 
 void
