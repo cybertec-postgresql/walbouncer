@@ -322,6 +322,26 @@ WbMcSendReply(MasterConn *master, StandbyReplyMessage *reply, bool force, bool r
 	WbMcSend(master, reply_message, 34);
 }
 
+void
+WbMcSendFeedback(MasterConn *master, HSFeedbackMessage *feedback)
+{
+	char feedback_message[1+8+4+4];
+
+	memset(feedback_message, 0, sizeof(feedback_message));
+
+	feedback_message[0] = 'h';
+	write64(&(feedback_message[1]), feedback->sendTime);
+	write32(&(feedback_message[9]), feedback->xmin);
+	write32(&(feedback_message[13]), feedback->epoch);
+
+	log_debug1("Send HS feedback to master: xmin %d epoch %d sendtime %s",
+			feedback->xmin,
+			feedback->epoch,
+			timestamptz_to_str(feedback->sendTime));
+
+	WbMcSend(master, feedback_message, sizeof(feedback_message));
+}
+
 bool
 WbMcIdentifySystem(MasterConn* master,
 		char** primary_sysid, char** primary_tli, char** primary_xpos)

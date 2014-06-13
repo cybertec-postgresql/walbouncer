@@ -18,6 +18,12 @@ typedef struct {
 } StandbyReplyMessage;
 
 typedef struct {
+	TimestampTz sendTime;
+	TransactionId xmin;
+	uint32		epoch;
+} HSFeedbackMessage;
+
+typedef struct {
 	int fd;
 	char *recvBuffer;
 	int recvPointer;
@@ -53,6 +59,8 @@ typedef struct {
 	// Receive state
 	StandbyReplyMessage lastReply;
 	bool	replyForwarded;
+	HSFeedbackMessage lastFeedback;
+	bool	feedbackForwarded;
 } XfPortStruct;
 typedef XfPortStruct* XfConn;
 

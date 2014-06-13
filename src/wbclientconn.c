@@ -672,6 +672,12 @@ again:
 			conn->replyForwarded = true;
 		}
 
+		if (!conn->feedbackForwarded)
+		{
+			WbMcSendFeedback(master, &(conn->lastFeedback));
+			conn->feedbackForwarded = true;
+		}
+
 		if (ConnHasDataToFlush(conn))
 		{
 			ConnFlush(conn, FLUSH_ASYNC);
@@ -890,21 +896,21 @@ WbCCSendKeepalive(XfConn conn, bool request_reply)
 static void
 WbCCProcessStandbyHSFeedbackMessage(XfConn conn, XfMessage *msg)
 {
-	TransactionId feedbackXmin;
-	uint32		feedbackEpoch;
+	HSFeedbackMessage *feedback = &(conn->lastFeedback);
 	/*
 	 * Decipher the reply message. The caller already consumed the msgtype
 	 * byte.
 	 */
-	(void) fromnetwork64(msg->data + 1);		/* sendTime; not used ATM */
-	feedbackXmin = fromnetwork32(msg->data + 9);
-	feedbackEpoch = fromnetwork32(msg->data + 13);
+	feedback->sendTime = fromnetwork64(msg->data + 1);		/* sendTime; not used ATM */
+	feedback->xmin = fromnetwork32(msg->data + 9);
+	feedback->epoch = fromnetwork32(msg->data + 13);
 
-	log_debug1("hot standby feedback xmin %u epoch %u",
-		 feedbackXmin,
-		 feedbackEpoch);
+	log_debug1("hot standby feedback xmin %u epoch %u sendTime %s",
+		 feedback->xmin,
+		 feedback->epoch,
+		 timestamptz_to_str(feedback->sendTime));
 
-	// TODO: arrange for the feedback to be forwarded to the master
+	conn->feedbackForwarded = false;
 }
 
 

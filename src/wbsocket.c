@@ -81,6 +81,7 @@ ConnCreate(XfSocket server)
 	conn->copyDoneReceived = false;
 
 	conn->replyForwarded = true;
+	conn->feedbackForwarded = true;
 
 	log_info("Waiting for connections.");
 

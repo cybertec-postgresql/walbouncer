@@ -116,6 +116,14 @@ write64(char *buf, uint64 v)
 		*buf++ = (char)(v >> i*8);
 }
 
+void
+write32(char *buf, uint32 v)
+{
+	int i;
+	for (i = 3; i>= 0; i--)
+		*buf++ = (char)(v >> i*8);
+}
+
 #define INT64CONST(x)  ((int64) x)
 #define MAXDATELEN 30
 #define USECS_PER_SEC	INT64CONST(1000000)

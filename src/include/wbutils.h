@@ -51,6 +51,7 @@ int ensure_atoi(char *s);
 uint64 fromnetwork64(char *buf);
 uint32 fromnetwork32(char *buf);
 void write64(char *buf, uint64 v);
+void write32(char *buf, uint32 v);
 
 const char * timestamptz_to_str(TimestampTz t);
 #endif
