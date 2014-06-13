@@ -26,6 +26,12 @@ typedef struct {
 
 } ReplMessage;
 
+typedef struct {
+	char *filename;
+	size_t contentLen;
+	char *content;
+} TimelineHistory;
+
 typedef struct MasterConn MasterConn;
 
 MasterConn* WbMcOpenConnection(const char *conninfo);
@@ -38,6 +44,8 @@ void WbMcSendReply(MasterConn *master, StandbyReplyMessage *reply, bool force, b
 void WbMcSendFeedback(MasterConn *master, HSFeedbackMessage *feedback);
 bool WbMcIdentifySystem(MasterConn* master,
 		char** primary_sysid, char** primary_tli, char** primary_xpos);
+bool WbMcGetTimelineHistory(MasterConn* master, TimeLineID timeline,
+		TimelineHistory *history);
 Oid * WbMcResolveTablespaceOids(const char *conninfo, const char* tablespace_names);
 const char *WbMcParameterStatus(MasterConn *master, char *name);
 #endif

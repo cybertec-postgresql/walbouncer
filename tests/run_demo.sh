@@ -160,6 +160,18 @@ check_replication()
     du -sh $WD/tablespaces/slave1/slave2
 }
 
+increment_master_timeline()
+{
+    msg "Incrementing master timeline"
+    pg_ctl -D "$MASTER_DATA" -l "$MASTER_DATA/startup.log" -w stop || exit
+    (cat <<EOF
+        recovery_target_timeline = 'latest'
+        restore_command = 'false'
+EOF
+    ) > "$MASTER_DATA/recovery.conf"
+    pg_ctl -D "$MASTER_DATA" -l "$MASTER_DATA/startup.log" -w start || exit
+}
+
 TEST_HOME="$(dirname $0)"
 cd "$TEST_HOME"
 WD="$(pwd)"
@@ -175,6 +187,7 @@ setup_master_tablespaces
 setup_slave slave1 5434
 # Will enable this when walbouncer supports forking
 #setup_slave slave2 5435
+increment_master_timeline
 start_walbouncer
 start_slave slave1
 

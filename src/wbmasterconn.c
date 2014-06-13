@@ -337,6 +337,38 @@ WbMcIdentifySystem(MasterConn* master,
 	return true;
 }
 
+bool
+WbMcGetTimelineHistory(MasterConn* master, TimeLineID timeline,
+		TimelineHistory *history)
+{
+	PGconn *mc = master->conn;
+	char query[16+1+10+1];
+	PGresult *result;
+
+	sprintf(query, "TIMELINE_HISTORY %d", timeline);
+
+	result = PQexec(mc, query);
+
+	if (PQresultStatus(result) != PGRES_TUPLES_OK)
+	{
+		// TODO: handle missing timeline case
+		log_debug1("Timeline query returned %s", PQresStatus(PQresultStatus(result)));
+		PQclear(result);
+		error("Getting timeline history from master failed with: %s", PQerrorMessage(mc));
+	}
+	if (PQnfields(result) < 2 || PQntuples(result) != 1)
+	{
+		error("Invalid response for timeline history");
+	}
+
+	history->filename = wbstrdup(PQgetvalue(result, 0, 0));
+	history->contentLen = PQgetlength(result, 0, 1);
+	history->content = wballoc(history->contentLen);
+    memcpy(history->content, PQgetvalue(result, 0, 1), history->contentLen);
+
+    PQclear(result);
+	return true;
+}
 Oid *
 WbMcResolveTablespaceOids(const char *conninfo, const char* tablespace_names)
 {

@@ -31,7 +31,7 @@ static void WbCCExecCommand(XfConn conn, MasterConn *master, char *query_string)
 static void WbCCExecIdentifySystem(XfConn conn, MasterConn *master);
 static bool WbCCWaitForData(XfConn conn, MasterConn *master);
 static void WbCCExecStartPhysical(XfConn conn, MasterConn *master, ReplicationCommand *cmd);
-static void WbCCExecTimeline();
+static void WbCCExecTimeline(XfConn conn, MasterConn *master, ReplicationCommand *cmd);
 static Oid* WbCCFindTablespaceOids(XfConn conn);
 //static void WbCCSendWALRecord(XfConn conn, char *data, int len, XLogRecPtr sentPtr, TimestampTz lastSend);
 //static void WbCCSendEndOfWal(XfConn conn);
@@ -478,7 +478,7 @@ WbCCExecCommand(XfConn conn, MasterConn *master, char *query_string)
 			error("Command not supported");
 			break;
 		case REPL_TIMELINE:
-			WbCCExecTimeline();
+			WbCCExecTimeline(conn, master, cmd);
 			//TODO
 			break;
 	}
@@ -493,6 +493,7 @@ WbCCExecCommand(XfConn conn, MasterConn *master, char *query_string)
 /* TODO: move these to PG version specific config file */
 #define TEXTOID 25
 #define INT4OID 23
+#define BYTEAOID 17
 
 static void
 WbCCExecIdentifySystem(XfConn conn, MasterConn *master)
@@ -720,10 +721,49 @@ again:
 }
 
 static void
-WbCCExecTimeline()
+WbCCExecTimeline(XfConn conn, MasterConn *master, ReplicationCommand *cmd)
 {
-	error("Timeline");
-	// query master server, write out copy data
+	TimelineHistory history;
+
+	log_info("Received request for timeline %d", cmd->timeline);
+
+	WbMcGetTimelineHistory(master, cmd->timeline, &history);
+
+	ConnBeginMessage(conn, 'T');
+	ConnSendInt(conn, 2, 2);		/* 2 fields */
+
+	/* first field */
+	ConnSendString(conn, "filename");	/* col name */
+	ConnSendInt(conn, 0, 4);		/* table oid */
+	ConnSendInt(conn, 0, 2);		/* attnum */
+	ConnSendInt(conn, TEXTOID, 4);		/* type oid */
+	ConnSendInt(conn, -1, 2);	/* typlen */
+	ConnSendInt(conn, 0, 4);		/* typmod */
+	ConnSendInt(conn, 0, 2);		/* format code */
+
+	/* second field */
+	ConnSendString(conn, "content");		/* col name */
+	ConnSendInt(conn, 0, 4);		/* table oid */
+	ConnSendInt(conn, 0, 2);		/* attnum */
+	ConnSendInt(conn, BYTEAOID, 4);		/* type oid */
+	ConnSendInt(conn, -1, 2);	/* typlen */
+	ConnSendInt(conn, 0, 4);		/* typmod */
+	ConnSendInt(conn, 0, 2);		/* format code */
+	ConnEndMessage(conn);
+
+	/* Send a DataRow message */
+	ConnBeginMessage(conn, 'D');
+	ConnSendInt(conn, 2, 2);		/* # of columns */
+	ConnSendInt(conn, strlen(history.filename), 4);		/* col1 len */
+	ConnSendBytes(conn, history.filename, strlen(history.filename));
+	ConnSendInt(conn, history.contentLen, 4);	/* col2 len */
+	ConnSendBytes(conn, history.content, history.contentLen);
+	ConnEndMessage(conn);
+
+	log_info("Sending out timeline history file %s", history.filename);
+
+	wbfree(history.filename);
+	wbfree(history.content);
 }
 
 static Oid*
