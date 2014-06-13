@@ -34,7 +34,7 @@ int WbMcGetSocket(MasterConn *master);
 bool WbMcStartStreaming(MasterConn *master, XLogRecPtr pos, TimeLineID tli);
 void WbMcEndStreaming(MasterConn *master, TimeLineID *next_tli);
 bool WbMcReceiveWalMessage(MasterConn *master, ReplMessage *msg);
-void WbMcSendReply(MasterConn *master, StandbyMessage *reply, bool force, bool requestReply);
+void WbMcSendReply(MasterConn *master, StandbyReplyMessage *reply, bool force, bool requestReply);
 bool WbMcIdentifySystem(MasterConn* master,
 		char** primary_sysid, char** primary_tli, char** primary_xpos);
 Oid * WbMcResolveTablespaceOids(const char *conninfo, const char* tablespace_names);

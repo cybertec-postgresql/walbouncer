@@ -15,7 +15,7 @@ typedef struct {
 	XLogRecPtr applyPtr;
 	TimestampTz sendTime;
 	bool		replyRequested;
-} StandbyMessage;
+} StandbyReplyMessage;
 
 typedef struct {
 	int fd;
@@ -51,7 +51,7 @@ typedef struct {
 	bool copyDoneReceived;
 
 	// Receive state
-	StandbyMessage lastReply;
+	StandbyReplyMessage lastReply;
 	bool	replyForwarded;
 } XfPortStruct;
 typedef XfPortStruct* XfConn;

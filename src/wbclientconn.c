@@ -848,7 +848,7 @@ WbCCProcessReplyMessage(XfConn conn)
 static void
 WbCCProcessStandbyReplyMessage(XfConn conn, XfMessage *msg)
 {
-	StandbyMessage *reply = &(conn->lastReply);
+	StandbyReplyMessage *reply = &(conn->lastReply);
 
 	/* the caller already consumed the msgtype byte */
 	reply->writePtr = fromnetwork64(msg->data + 1);

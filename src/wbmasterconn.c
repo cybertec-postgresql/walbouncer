@@ -264,7 +264,7 @@ WbMcSend(MasterConn *master, const char *buffer, int nbytes)
 }
 
 void
-WbMcSendReply(MasterConn *master, StandbyMessage *reply, bool force, bool requestReply)
+WbMcSendReply(MasterConn *master, StandbyReplyMessage *reply, bool force, bool requestReply)
 {
 	XLogRecPtr writePtr = reply->writePtr;
 	XLogRecPtr flushPtr = reply->flushPtr;
