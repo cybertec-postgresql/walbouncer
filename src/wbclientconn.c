@@ -707,6 +707,7 @@ again:
 				case MSG_KEEPALIVE:
 					// Keepalive from master is currently handled by the
 					// receive func.
+					conn->lastSend = msg->sendTime;
 					break;
 				case MSG_NOTHING:
 					// Nothing received, we loop back around and wait for data.
