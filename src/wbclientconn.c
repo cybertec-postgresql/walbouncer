@@ -40,6 +40,7 @@ static void WbCCProcessReplyMessage(XfConn conn);
 static void WbCCProcessStandbyReplyMessage(XfConn conn, XfMessage *msg);
 static void WbCCSendKeepalive(XfConn conn, bool request_reply);
 static void WbCCProcessStandbyHSFeedbackMessage(XfConn conn, XfMessage *msg);
+static void WbCCForwardPendingReplies(XfConn conn, MasterConn* master);
 static void WbCCSendCopyBothResponse(XfConn conn);
 static void WbCCSendWalBlock(XfConn conn, ReplMessage *msg, FilterData *fl);
 
@@ -665,18 +666,7 @@ again:
 			continue;
 
 		WbCCProcessRepliesIfAny(conn);
-
-		if (!conn->replyForwarded)
-		{
-			WbMcSendReply(master, &(conn->lastReply), false, false);
-			conn->replyForwarded = true;
-		}
-
-		if (!conn->feedbackForwarded)
-		{
-			WbMcSendFeedback(master, &(conn->lastFeedback));
-			conn->feedbackForwarded = true;
-		}
+		WbCCForwardPendingReplies(conn, master);
 
 		if (ConnHasDataToFlush(conn))
 		{
@@ -913,6 +903,20 @@ WbCCProcessStandbyHSFeedbackMessage(XfConn conn, XfMessage *msg)
 	conn->feedbackForwarded = false;
 }
 
+static void
+WbCCForwardPendingReplies(XfConn conn, MasterConn* master)
+{
+	if (!conn->replyForwarded)
+	{
+		WbMcSendReply(master, &(conn->lastReply), false, false);
+		conn->replyForwarded = true;
+	}
+	if (!conn->feedbackForwarded)
+	{
+		WbMcSendFeedback(master, &(conn->lastFeedback));
+		conn->feedbackForwarded = true;
+	}
+}
 
 static void
 WbCCSendCopyBothResponse(XfConn conn)
