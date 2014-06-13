@@ -52,4 +52,5 @@ uint64 fromnetwork64(char *buf);
 uint32 fromnetwork32(char *buf);
 void write64(char *buf, uint64 v);
 
+const char * timestamptz_to_str(TimestampTz t);
 #endif

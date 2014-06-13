@@ -705,9 +705,8 @@ again:
 					break;
 				}
 				case MSG_KEEPALIVE:
-					// Keepalive from master is currently handled by the
-					// receive func.
 					conn->lastSend = msg->sendTime;
+					WbCCSendKeepalive(conn, msg->replyRequested);
 					break;
 				case MSG_NOTHING:
 					// Nothing received, we loop back around and wait for data.
@@ -858,10 +857,11 @@ WbCCProcessStandbyReplyMessage(XfConn conn, XfMessage *msg)
 	reply->sendTime = fromnetwork64(msg->data + 25);		/* sendTime; not used ATM */
 	reply->replyRequested = msg->data[33];
 
-	log_debug1("Standby reply msg: write %X/%X flush %X/%X apply %X/%X%s",
+	log_debug1("Standby reply msg: write %X/%X flush %X/%X apply %X/%X sendTime %s%s",
 		 FormatRecPtr(reply->writePtr),
 		 FormatRecPtr(reply->flushPtr),
 		 FormatRecPtr(reply->applyPtr),
+		 timestamptz_to_str(reply->sendTime),
 		 reply->replyRequested ? " (reply requested)" : "");
 
 	/* Send a reply if the standby requested one. */

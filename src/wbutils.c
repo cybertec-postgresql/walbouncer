@@ -115,3 +115,29 @@ write64(char *buf, uint64 v)
 	for (i = 7; i>= 0; i--)
 		*buf++ = (char)(v >> i*8);
 }
+
+#define INT64CONST(x)  ((int64) x)
+#define MAXDATELEN 30
+#define USECS_PER_SEC	INT64CONST(1000000)
+/*
+ * Produce a C-string representation of a TimestampTz.
+ *
+ * This is mostly for use in emitting messages.  The primary difference
+ * from timestamptz_out is that we force the output format to ISO.  Note
+ * also that the result is in a static buffer, not pstrdup'd.
+ */
+const char *
+timestamptz_to_str(TimestampTz t)
+{
+	static char buf[MAXDATELEN];
+	struct tm tm;
+	time_t time;
+	int offset;
+
+	time = (int32) (t / USECS_PER_SEC) + 946684800;
+	gmtime_r(&time, &tm);
+	offset = strftime(buf, MAXDATELEN, "%Y-%m-%d %H:%M:%S", &tm);
+	Assert(offset > 0);
+	sprintf(buf+offset, ".%06d+00", (int32) (t % USECS_PER_SEC));
+	return buf;
+}

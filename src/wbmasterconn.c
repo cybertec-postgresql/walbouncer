@@ -162,10 +162,11 @@ WbMcReceiveWalMessage(MasterConn *master, ReplMessage *msg)
 					msg->data = buf+25;
 					msg->nextPageBoundary = (XLOG_BLCKSZ - msg->dataStart) & (XLOG_BLCKSZ-1);
 
-					log_debug1("Received %u byte WAL block", len-25);
-					log_debug1("   dataStart: %X/%X", FormatRecPtr(msg->dataStart));
-					log_debug1("   walEnd: %X/%X", FormatRecPtr(msg->walEnd));
-					log_debug1("   sendTime: %lu", msg->sendTime);
+					log_debug1("Received %u byte WAL block. dataStart: %X/%X walEnd: %X/%X sendTime: %s",
+							len-25,
+							FormatRecPtr(msg->dataStart),
+							FormatRecPtr(msg->walEnd),
+							timestamptz_to_str(msg->sendTime));
 
 					WbMcProcessWalsenderMessage(master, msg);
 					break;
@@ -177,15 +178,11 @@ WbMcReceiveWalMessage(MasterConn *master, ReplMessage *msg)
 					msg->sendTime = fromnetwork64(buf+9);
 					msg->replyRequested = *(buf+17);
 
-					log_debug1("Received keepalive message");
-					log_debug1("   walEnd: %X/%X", FormatRecPtr(msg->walEnd));
-					log_debug1("   sendTime: %lu", msg->sendTime);
-					log_debug1("   replyRequested: %d", msg->replyRequested);
-					WbMcProcessWalsenderMessage(master, msg);
+					log_debug1("Received keepalive message. walEnd: %X/%X sendTime: %s",
+												FormatRecPtr(msg->walEnd),
+												timestamptz_to_str(msg->sendTime));
 
-					// TODO: fix this
-					//if (msg->replyRequested)
-						//WbMcSendReply(master, true, false);
+					WbMcProcessWalsenderMessage(master, msg);
 					break;
 				}
 		}
@@ -247,6 +244,7 @@ WbMcReceiveWal(MasterConn *master, char **buffer)
 static void
 WbMcProcessWalsenderMessage(MasterConn *master, ReplMessage *msg)
 {
+	// TODO: this is not currently needed, revisit when featurecomplete.
 	master->latestWalEnd = msg->walEnd;
 	master->latestSendTime = msg->sendTime;
 }
@@ -315,10 +313,11 @@ WbMcSendReply(MasterConn *master, StandbyMessage *reply, bool force, bool reques
 	reply_message[33] = requestReply ? 1 : 0;
 
 
-	log_debug1("Send reply to master: write %X/%X flush %X/%X apply %X/%X%s",
+	log_debug1("Send reply to master: write %X/%X flush %X/%X apply %X/%X sendtime %s%s",
 			FormatRecPtr(writePtr),
 			FormatRecPtr(flushPtr),
 			FormatRecPtr(applyPtr),
+			timestamptz_to_str(sendTime),
 			requestReply ? " (reply requested" : "");
 	WbMcSend(master, reply_message, 34);
 }
