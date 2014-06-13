@@ -53,6 +53,7 @@ setup_master()
         log_connections = on
         log_disconnections = on
         log_line_prefix = '[%m] %u %d '
+        # log_min_messages = debug2
 EOF
     ) > "$MASTER_DATA/postgresql.conf"
     (cat <<EOF
