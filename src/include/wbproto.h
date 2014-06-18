@@ -1,5 +1,5 @@
 #ifndef	_WB_PROTO_H
-#define _XF_PROTO_H 1
+#define _WB_PROTO_H 1
 
 #define PG_PROTOCOL_MAJOR(v)	((v) >> 16)
 #define PG_PROTOCOL_MINOR(v)	((v) & 0x0000ffff)
