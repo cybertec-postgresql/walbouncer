@@ -49,7 +49,7 @@ OpenServerSocket(char *port)
 	if (bind(sock->fd, res->ai_addr, res->ai_addrlen))
 		error("Bind failed");
 	if (listen(sock->fd, BACKLOG))
-		error("Listern failed");
+		error("Listen failed");
 
 	freeaddrinfo(res);
 
