@@ -20,6 +20,14 @@ typedef struct {
 	XfMessage *msg;
 } XfCommand;
 
+typedef struct {
+	char *name;
+	Oid	type;
+	void *value;
+	int valueLen;
+} ResultCol;
+
+
 static int WbCCProcessStartupPacket(XfConn conn, bool SSLdone);
 static int WbCCReadCommand(XfConn conn, XfCommand *cmd);
 static void WbCCSendReadyForQuery(XfConn conn);
@@ -43,6 +51,8 @@ static void WbCCProcessStandbyHSFeedbackMessage(XfConn conn, XfMessage *msg);
 static void WbCCForwardPendingReplies(XfConn conn, MasterConn* master);
 static void WbCCSendCopyBothResponse(XfConn conn);
 static void WbCCSendWalBlock(XfConn conn, ReplMessage *msg, FilterData *fl);
+static void WbCCSendResultset(XfConn conn, int ncols, ResultCol *cols);
+static void WbCCSendErrorReport(XfConn conn, LogLevel level, char *message, char* detail);
 
 
 
@@ -464,6 +474,7 @@ WbCCExecCommand(XfConn conn, MasterConn *master, char *query_string)
 	switch (cmd->command)
 	{
 		case REPL_IDENTIFY_SYSTEM:
+			WbCCSendErrorReport(conn, LOG_INFO, "Sending test notice", "");
 			WbCCExecIdentifySystem(conn, master);
 			break;
 		case REPL_BASE_BACKUP:
@@ -492,6 +503,7 @@ WbCCExecCommand(XfConn conn, MasterConn *master, char *query_string)
 
 /* TODO: move these to PG version specific config file */
 #define TEXTOID 25
+#define INT8OID 20
 #define INT4OID 23
 #define BYTEAOID 17
 
@@ -519,68 +531,15 @@ WbCCExecIdentifySystem(XfConn conn, MasterConn *master)
 
 	//TODO: parse out tli and xpos for our use
 
-	/* Send a RowDescription message */
-	ConnBeginMessage(conn, 'T');
-	ConnSendInt(conn, 4, 2);		/* 4 fields */
-
-	/* first field */
-	ConnSendString(conn, "systemid");	/* col name */
-	ConnSendInt(conn, 0, 4);		/* table oid */
-	ConnSendInt(conn, 0, 2);		/* attnum */
-	ConnSendInt(conn, TEXTOID, 4);		/* type oid */
-	ConnSendInt(conn, -1, 2);	/* typlen */
-	ConnSendInt(conn, 0, 4);		/* typmod */
-	ConnSendInt(conn, 0, 2);		/* format code */
-
-	/* second field */
-	ConnSendString(conn, "timeline");	/* col name */
-	ConnSendInt(conn, 0, 4);		/* table oid */
-	ConnSendInt(conn, 0, 2);		/* attnum */
-	ConnSendInt(conn, INT4OID, 4);		/* type oid */
-	ConnSendInt(conn, 4, 2);		/* typlen */
-	ConnSendInt(conn, 0, 4);		/* typmod */
-	ConnSendInt(conn, 0, 2);		/* format code */
-
-	/* third field */
-	ConnSendString(conn, "xlogpos");		/* col name */
-	ConnSendInt(conn, 0, 4);		/* table oid */
-	ConnSendInt(conn, 0, 2);		/* attnum */
-	ConnSendInt(conn, TEXTOID, 4);		/* type oid */
-	ConnSendInt(conn, -1, 2);	/* typlen */
-	ConnSendInt(conn, 0, 4);		/* typmod */
-	ConnSendInt(conn, 0, 2);		/* format code */
-
-	/* fourth field */
-	ConnSendString(conn, "dbname");		/* col name */
-	ConnSendInt(conn, 0, 4);		/* table oid */
-	ConnSendInt(conn, 0, 2);		/* attnum */
-	ConnSendInt(conn, TEXTOID, 4);		/* type oid */
-	ConnSendInt(conn, -1, 2);	/* typlen */
-	ConnSendInt(conn, 0, 4);		/* typmod */
-	ConnSendInt(conn, 0, 2);		/* format code */
-	ConnEndMessage(conn);
-
-	/* Send a DataRow message */
-	ConnBeginMessage(conn, 'D');
-	ConnSendInt(conn, 4, 2);		/* # of columns */
-	ConnSendInt(conn, strlen(primary_sysid), 4); /* col1 len */
-	ConnSendBytes(conn, primary_sysid, strlen(primary_sysid));
-	ConnSendInt(conn, strlen(primary_tli), 4);	/* col2 len */
-	ConnSendBytes(conn, (char *) primary_tli, strlen(primary_tli));
-	ConnSendInt(conn, strlen(primary_xpos), 4);	/* col3 len */
-	ConnSendBytes(conn, (char *) primary_xpos, strlen(primary_xpos));
-	/* send NULL if not connected to a database */
-	if (dbname)
 	{
-		ConnSendInt(conn, strlen(dbname), 4);	/* col4 len */
-		ConnSendBytes(conn, (char *) dbname, strlen(dbname));
+		ResultCol cols[4] = {
+				{"systemid", TEXTOID, primary_sysid, 0},
+				{"timeline", INT4OID, primary_tli, 0},
+				{"xlogpos", TEXTOID, primary_xpos, 0},
+				{"dbname", TEXTOID, dbname, 0}
+		};
+		WbCCSendResultset(conn, 4, cols);
 	}
-	else
-	{
-		ConnSendInt(conn, -1, 4);	/* col4 len, NULL */
-	}
-
-	ConnEndMessage(conn);
 
 	wbfree(primary_sysid);
 	wbfree(primary_tli);
@@ -636,6 +595,73 @@ WbCCWaitForData(XfConn conn, MasterConn *master)
 	return true;
 }
 
+
+static void
+WbCCSendResultset(XfConn conn, int ncols, ResultCol *cols)
+{
+	int i;
+
+	ConnBeginMessage(conn, 'T');
+
+	ConnSendInt(conn, ncols, 2);
+
+	for (i = 0; i < ncols; i++)
+	{
+		ConnSendString(conn, cols[i].name);
+		ConnSendInt(conn, 0, 4); /* table oid */
+		ConnSendInt(conn, 0, 2); /* attnum */
+		ConnSendInt(conn, cols[i].type, 4); /* type oid */
+		ConnSendInt(conn, -1, 2);
+		ConnSendInt(conn, 0, 4);
+		ConnSendInt(conn, 0, 2);
+	}
+	ConnEndMessage(conn);
+
+	ConnBeginMessage(conn, 'D');
+	ConnSendInt(conn, ncols, 2);
+
+	for (i = 0; i < ncols; i++)
+	{
+		if (!cols[i].value)
+		{
+			ConnSendInt(conn, -1, 4);
+			continue;
+		}
+		switch (cols[i].type)
+		{
+		case INT4OID: // We only textual version of int4oid
+		case TEXTOID:
+		{
+			char *value = (char*) cols[i].value;
+			size_t len = strlen(value);
+			ConnSendInt(conn, len, 4);
+			ConnSendBytes(conn, value, len);
+			break;
+		}
+		case BYTEAOID:
+			ConnSendInt(conn, cols[i].valueLen, 4);
+			ConnSendBytes(conn, cols[i].value, cols[i].valueLen);
+			break;
+		case INT8OID:
+		{
+			// This is a bit of a hack, but as long as we only need this for the
+			// next TLI value it works.
+			uint32 value = *(uint32*) cols[i].value;
+			char buf[11];
+			size_t len;
+			len = snprintf(buf, 11, "%u", (uint32) value);
+			ConnSendInt(conn, len, 4);
+			ConnSendBytes(conn, buf, len);
+			break;
+		}
+		default:
+			error("Unexpected OID for resultset");
+		}
+	}
+
+	ConnEndMessage(conn);
+}
+
 static void
 WbCCExecStartPhysical(XfConn conn, MasterConn *master, ReplicationCommand *cmd)
 {
@@ -683,8 +709,11 @@ again:
 			switch (msg->type)
 			{
 				case MSG_END_OF_WAL:
-					// TODO: handle end of wal
 					log_info("End of WAL");
+					log_debug1("Sending CopyDone to client");
+					ConnBeginMessage(conn, 'c');
+					ConnEndMessage(conn);
+					// TODO handle waiting for client CopyDone reply.
 					endofwal = true;
 					break;
 				case MSG_WAL_DATA:
@@ -692,9 +721,7 @@ again:
 					XLogRecPtr restartPos;
 					if (!WbFProcessWalDataBlock(msg, fl, &restartPos))
 					{
-						TimeLineID tli;
-						WbMcEndStreaming(master, &tli);
-						Assert(tli == 0);
+						WbMcEndStreaming(master, NULL, NULL);
 						startReceivingFrom = restartPos;
 						goto again;
 					}
@@ -712,8 +739,22 @@ again:
 		}
 	}
 	{
-		TimeLineID tli;
-		WbMcEndStreaming(master, &tli);
+		TimeLineID nextTli;
+		char *nextTliStart;
+		WbMcEndStreaming(master, &nextTli, &nextTliStart);
+
+		if (nextTli && nextTliStart)
+		{
+			ResultCol cols[2] = {
+					{ "next_tli", INT8OID, &nextTli, 0},
+					{ "next_tli_startpos", TEXTOID, nextTliStart, 0}
+			};
+			WbCCSendResultset(conn, 2, cols);
+			wbfree(nextTliStart);
+		}
+		ConnBeginMessage(conn, 'C');
+		ConnSendString(conn, "START_STREAMING");
+		ConnEndMessage(conn);
 	}
 
 	WbFFreeProcessingState(fl);
@@ -729,36 +770,13 @@ WbCCExecTimeline(XfConn conn, MasterConn *master, ReplicationCommand *cmd)
 
 	WbMcGetTimelineHistory(master, cmd->timeline, &history);
 
-	ConnBeginMessage(conn, 'T');
-	ConnSendInt(conn, 2, 2);		/* 2 fields */
-
-	/* first field */
-	ConnSendString(conn, "filename");	/* col name */
-	ConnSendInt(conn, 0, 4);		/* table oid */
-	ConnSendInt(conn, 0, 2);		/* attnum */
-	ConnSendInt(conn, TEXTOID, 4);		/* type oid */
-	ConnSendInt(conn, -1, 2);	/* typlen */
-	ConnSendInt(conn, 0, 4);		/* typmod */
-	ConnSendInt(conn, 0, 2);		/* format code */
-
-	/* second field */
-	ConnSendString(conn, "content");		/* col name */
-	ConnSendInt(conn, 0, 4);		/* table oid */
-	ConnSendInt(conn, 0, 2);		/* attnum */
-	ConnSendInt(conn, BYTEAOID, 4);		/* type oid */
-	ConnSendInt(conn, -1, 2);	/* typlen */
-	ConnSendInt(conn, 0, 4);		/* typmod */
-	ConnSendInt(conn, 0, 2);		/* format code */
-	ConnEndMessage(conn);
-
-	/* Send a DataRow message */
-	ConnBeginMessage(conn, 'D');
-	ConnSendInt(conn, 2, 2);		/* # of columns */
-	ConnSendInt(conn, strlen(history.filename), 4);		/* col1 len */
-	ConnSendBytes(conn, history.filename, strlen(history.filename));
-	ConnSendInt(conn, history.contentLen, 4);	/* col2 len */
-	ConnSendBytes(conn, history.content, history.contentLen);
-	ConnEndMessage(conn);
+	{
+		ResultCol cols[2] = {
+				{ "filename", TEXTOID, history.filename, 0},
+				{ "content", BYTEAOID, history.content, history.contentLen}
+		};
+		WbCCSendResultset(conn, 2, cols);
+	}
 
 	log_info("Sending out timeline history file %s", history.filename);
 
@@ -1047,4 +1065,58 @@ WbCCSendWalBlock(XfConn conn, ReplMessage *msg, FilterData *fl)
 	conn->sentPtr = msg->dataStart + msg->dataLen - buffered;
 	conn->lastSend = msg->sendTime;
 	ConnFlush(conn, FLUSH_ASYNC);
+}
+
+static char*
+ErrorSeverity(LogLevel level)
+{
+	switch (level)
+	{
+	case LOG_ERROR:
+		return "ERROR";
+	case LOG_WARNING:
+		return "WARNING";
+	case LOG_INFO:
+		return "INFO";
+	case LOG_DEBUG1:
+	case LOG_DEBUG2:
+	case LOG_DEBUG3:
+		return "DEBUG";
+	default:
+		Assert(false);
+		return "";
+	}
+}
+
+static void
+WbCCSendErrorReport(XfConn conn, LogLevel level, char *message, char* detail)
+{
+	ConnBeginMessage(conn, level >= LOG_ERROR ? 'E' : 'N');
+
+	// Severity
+	ConnSendInt(conn, 'S', 1);
+	ConnSendString(conn, ErrorSeverity(level));
+
+	// SQLState
+	ConnSendInt(conn, 'C', 1);
+	ConnSendString(conn, "XX000");
+
+	// Message primary
+	ConnSendInt(conn, 'M', 1);
+	ConnSendString(conn, message);
+
+	// Message detail
+	if (detail)
+	{
+		ConnSendInt(conn, 'D', 1);
+		ConnSendString(conn, detail);
+	}
+	// hint H
+	// filename F
+	// lineno L
+	// function R
+
+	ConnSendInt(conn, '\0', 1);
+	ConnEndMessage(conn);
+	ConnFlush(conn, FLUSH_IMMEDIATE);
 }

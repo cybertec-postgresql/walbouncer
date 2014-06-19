@@ -6,9 +6,10 @@
 
 #include <getopt.h>
 
+
 #include "wbutils.h"
 #include "wbsocket.h"
-
+#include "wbsignals.h"
 #include "wbclientconn.h"
 
 char* listen_port = "5433";
@@ -18,6 +19,8 @@ char* master_port = "5432";
 void WalBouncerMain()
 {
 	// set up signals for child reaper, etc.
+	WbInitializeSignals();
+
 	// open socket for listening
 	XfSocket server = OpenServerSocket(listen_port);
 	XfConn conn;

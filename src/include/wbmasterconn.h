@@ -38,7 +38,7 @@ MasterConn* WbMcOpenConnection(const char *conninfo);
 void WbMcCloseConnection(MasterConn *master);
 int WbMcGetSocket(MasterConn *master);
 bool WbMcStartStreaming(MasterConn *master, XLogRecPtr pos, TimeLineID tli);
-void WbMcEndStreaming(MasterConn *master, TimeLineID *next_tli);
+void WbMcEndStreaming(MasterConn *master, TimeLineID *nextTli, char** nextTliStart);
 bool WbMcReceiveWalMessage(MasterConn *master, ReplMessage *msg);
 void WbMcSendReply(MasterConn *master, StandbyReplyMessage *reply, bool force, bool requestReply);
 void WbMcSendFeedback(MasterConn *master, HSFeedbackMessage *feedback);

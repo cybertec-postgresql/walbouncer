@@ -75,7 +75,7 @@ WbMcStartStreaming(MasterConn *master, XLogRecPtr pos, TimeLineID tli)
 }
 
 void
-WbMcEndStreaming(MasterConn *master, TimeLineID *next_tli)
+WbMcEndStreaming(MasterConn *master, TimeLineID *nextTli, char** nextTliStart)
 {
 	PGconn *mc = master->conn;
 	PGresult   *res;
@@ -107,7 +107,7 @@ WbMcEndStreaming(MasterConn *master, TimeLineID *next_tli)
 		res = PQgetResult(mc);
 	}
 
-	if (PQresultStatus(res) == PGRES_TUPLES_OK)
+	if (PQresultStatus(res) == PGRES_TUPLES_OK && nextTli && nextTliStart)
 	{
 		/*
 		 * Read the next timeline's ID. The server also sends the timeline's
@@ -115,14 +115,21 @@ WbMcEndStreaming(MasterConn *master, TimeLineID *next_tli)
 		 */
 		if (PQnfields(res) < 2 || PQntuples(res) != 1)
 			error("unexpected result set after end-of-streaming");
-		*next_tli = ensure_atoi(PQgetvalue(res, 0, 0));
+		*nextTli = ensure_atoi(PQgetvalue(res, 0, 0));
+		*nextTliStart = wbstrdup(PQgetvalue(res, 0, 1));
+		log_info("Ended streaming with master, received next TLI %u, start pos %s", *nextTli, *nextTliStart);
+
 		PQclear(res);
 
 		/* the result set should be followed by CommandComplete */
 		res = PQgetResult(mc);
 	}
 	else
-		*next_tli = 0;
+	{
+		log_info("Ended streaming with master, no historic TLI information received");
+		*nextTli = 0;
+		*nextTliStart = NULL;
+	}
 
 	if (PQresultStatus(res) != PGRES_COMMAND_OK)
 		error(PQerrorMessage(mc));
