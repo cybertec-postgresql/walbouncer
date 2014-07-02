@@ -3,8 +3,8 @@
 
 #include "wbsocket.h"
 
-void WbCCInitConnection(XfConn conn);
-void WbCCPerformAuthentication(XfConn conn);
-void WbCCCommandLoop(XfConn conn);
+void WbCCInitConnection(WbConn conn);
+void WbCCPerformAuthentication(WbConn conn);
+void WbCCCommandLoop(WbConn conn);
 
 #endif

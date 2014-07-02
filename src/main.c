@@ -22,8 +22,8 @@ void WalBouncerMain()
 	WbInitializeSignals();
 
 	// open socket for listening
-	XfSocket server = OpenServerSocket(listen_port);
-	XfConn conn;
+	WbSocket server = OpenServerSocket(listen_port);
+	WbConn conn;
 
 	conn = ConnCreate(server);
 	conn->master_host = master_host;

@@ -6,8 +6,8 @@
 
 typedef struct {
 	int fd;
-} XfSocketStruct;
-typedef XfSocketStruct* XfSocket;
+} WbSocketStruct;
+typedef WbSocketStruct* WbSocket;
 
 typedef struct {
 	XLogRecPtr writePtr;
@@ -61,72 +61,72 @@ typedef struct {
 	bool	replyForwarded;
 	HSFeedbackMessage lastFeedback;
 	bool	feedbackForwarded;
-} XfPortStruct;
-typedef XfPortStruct* XfConn;
+} WbPortStruct;
+typedef WbPortStruct* WbConn;
 
 typedef struct {
 	int32 len;
 	char data[1];
-} XfMessage;
+} WbMessage;
 
 typedef enum {
 	FLUSH_IMMEDIATE,
 	FLUSH_ASYNC
 } ConnFlushMode;
 
-XfSocket
+WbSocket
 OpenServerSocket(char *port);
 
-XfConn
-ConnCreate(XfSocket server);
+WbConn
+ConnCreate(WbSocket server);
 
 bool
-ConnHasDataToFlush(XfConn conn);
+ConnHasDataToFlush(WbConn conn);
 
 int
-ConnFlush(XfConn conn, ConnFlushMode mode);
+ConnFlush(WbConn conn, ConnFlushMode mode);
 
 void
-CloseConn(XfConn);
+CloseConn(WbConn);
 
 void
-CloseSocket(XfSocket sock);
+CloseSocket(WbSocket sock);
 
 int
-ConnGetSocket(XfConn conn);
+ConnGetSocket(WbConn conn);
 
 void
-ConnBeginMessage(XfConn conn, char type);
+ConnBeginMessage(WbConn conn, char type);
 
 void
-ConnSendInt(XfConn conn, int i, int b);
+ConnSendInt(WbConn conn, int i, int b);
 
 void
-ConnSendInt64(XfConn conn, int64 i);
+ConnSendInt64(WbConn conn, int64 i);
 
 void
-ConnSendString(XfConn conn, const char *str);
+ConnSendString(WbConn conn, const char *str);
 
 void
-ConnSendBytes(XfConn conn, const char *str, int n);
+ConnSendBytes(WbConn conn, const char *str, int n);
 
 void
-ConnEndMessage(XfConn conn);
+ConnEndMessage(WbConn conn);
 
 int
-ConnGetByte(XfConn conn);
+ConnGetByte(WbConn conn);
 
 int
-ConnGetBytes(XfConn conn, char *s, size_t len);
+ConnGetBytes(WbConn conn, char *s, size_t len);
 
 int
-ConnGetByteIfAvailable(XfConn conn, char *c);
+ConnGetByteIfAvailable(WbConn conn, char *c);
 
 int
-ConnGetMessage(XfConn conn, XfMessage **msg);
+ConnGetMessage(WbConn conn, WbMessage **msg);
 
 void
-ConnFreeMessage(XfMessage *msg);
+ConnFreeMessage(WbMessage *msg);
 
 
 void

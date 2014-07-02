@@ -18,14 +18,14 @@
 #define SEND_BUFFER_INIT_SIZE (256*1024)
 #define RECV_BUFFER_SIZE 8192
 
-XfSocket
+WbSocket
 OpenServerSocket(char *port)
 {
 	int status;
 	struct addrinfo hints;
 	struct addrinfo *res;
 	int yes=1;
-	XfSocket sock = wballoc(sizeof(XfSocketStruct));
+	WbSocket sock = wballoc(sizeof(WbSocketStruct));
 
 	log_info("Starting socket on port %s", port);
 
@@ -56,12 +56,12 @@ OpenServerSocket(char *port)
 	return sock;
 }
 
-XfConn
-ConnCreate(XfSocket server)
+WbConn
+ConnCreate(WbSocket server)
 {
 	struct sockaddr_storage their_addr;
 	socklen_t addr_size;
-	XfConn conn = wballoc0(sizeof(XfPortStruct));
+	WbConn conn = wballoc0(sizeof(WbPortStruct));
 
 	conn->fd = accept(server->fd, (struct sockaddr *) &their_addr, &addr_size);
 
@@ -89,13 +89,13 @@ ConnCreate(XfSocket server)
 }
 
 bool
-ConnHasDataToFlush(XfConn conn)
+ConnHasDataToFlush(WbConn conn)
 {
 	return conn->sendBufFlushPtr < conn->sendBufLen;
 }
 
 int
-ConnFlush(XfConn conn, ConnFlushMode mode)
+ConnFlush(WbConn conn, ConnFlushMode mode)
 {
 	int sent = conn->sendBufFlushPtr;
 	int remaining = conn->sendBufLen - conn->sendBufFlushPtr;
@@ -148,7 +148,7 @@ ConnFlush(XfConn conn, ConnFlushMode mode)
 }
 
 bool
-ConnSetNonBlocking(XfConn conn, bool nonblocking)
+ConnSetNonBlocking(WbConn conn, bool nonblocking)
 {
 	if (nonblocking)
 		return (fcntl(conn->fd, F_SETFL, O_NONBLOCK) != -1);
@@ -164,7 +164,7 @@ ConnSetNonBlocking(XfConn conn, bool nonblocking)
 }
 
 static int
-ConnRecvBuf(XfConn conn)
+ConnRecvBuf(WbConn conn)
 {
 	if (conn->recvPointer > 0)
 	{
@@ -207,7 +207,7 @@ ConnRecvBuf(XfConn conn)
 }
 
 int
-ConnGetBytes(XfConn conn, char *s, size_t len)
+ConnGetBytes(WbConn conn, char *s, size_t len)
 {
 	size_t amount;
 
@@ -230,7 +230,7 @@ ConnGetBytes(XfConn conn, char *s, size_t len)
 }
 
 int
-ConnGetByteIfAvailable(XfConn conn, char *c)
+ConnGetByteIfAvailable(WbConn conn, char *c)
 {
 	int			r;
 
@@ -277,7 +277,7 @@ ConnGetByteIfAvailable(XfConn conn, char *c)
 }
 
 void
-CloseConn(XfConn conn)
+CloseConn(WbConn conn)
 {
 	close(conn->fd);
 	free(conn);
@@ -286,7 +286,7 @@ CloseConn(XfConn conn)
 
 
 void
-CloseSocket(XfSocket sock)
+CloseSocket(WbSocket sock)
 {
 	close(sock->fd);
 	free(sock);
@@ -294,7 +294,7 @@ CloseSocket(XfSocket sock)
 
 static
 void
-ConnEnsureFreeSpace(XfConn conn, int amount)
+ConnEnsureFreeSpace(WbConn conn, int amount)
 {
 	if (conn->sendBufSize - conn->sendBufLen < amount)
 	{
@@ -305,13 +305,13 @@ ConnEnsureFreeSpace(XfConn conn, int amount)
 }
 
 int
-ConnGetSocket(XfConn conn)
+ConnGetSocket(WbConn conn)
 {
 	return conn->fd;
 }
 
 void
-ConnBeginMessage(XfConn conn, char type)
+ConnBeginMessage(WbConn conn, char type)
 {
 	Assert(conn->sendBufMsgLenPtr == -1);
 
@@ -323,7 +323,7 @@ ConnBeginMessage(XfConn conn, char type)
 }
 
 void
-ConnSendInt(XfConn conn, int i, int b)
+ConnSendInt(WbConn conn, int i, int b)
 {
 	char *target = conn->sendBuffer + conn->sendBufLen;
 	ConnEnsureFreeSpace(conn, b);
@@ -346,7 +346,7 @@ ConnSendInt(XfConn conn, int i, int b)
 }
 
 void
-ConnSendInt64(XfConn conn, int64 i)
+ConnSendInt64(WbConn conn, int64 i)
 {
 	uint32 hi = htonl((uint32) (i >> 32));
 	uint32 lo = htonl((uint32) i);
@@ -359,7 +359,7 @@ ConnSendInt64(XfConn conn, int64 i)
 }
 
 void
-ConnSendString(XfConn conn, const char *str)
+ConnSendString(WbConn conn, const char *str)
 {
 	int slen = strlen(str);
 
@@ -372,7 +372,7 @@ ConnSendString(XfConn conn, const char *str)
 }
 
 void
-ConnSendBytes(XfConn conn, const char *str, int n)
+ConnSendBytes(WbConn conn, const char *str, int n)
 {
 	ConnEnsureFreeSpace(conn, n);
 
@@ -381,7 +381,7 @@ ConnSendBytes(XfConn conn, const char *str, int n)
 }
 
 void
-ConnEndMessage(XfConn conn)
+ConnEndMessage(WbConn conn)
 {
 	uint32 n32;
 
@@ -397,7 +397,7 @@ ConnEndMessage(XfConn conn)
 }
 
 int
-ConnGetByte(XfConn conn)
+ConnGetByte(WbConn conn)
 {
 	unsigned char value;
 	if (ConnGetBytes(conn, (char*) &value, 1) == EOF)
@@ -407,10 +407,10 @@ ConnGetByte(XfConn conn)
 }
 
 int
-ConnGetMessage(XfConn conn, XfMessage **msg)
+ConnGetMessage(WbConn conn, WbMessage **msg)
 {
 	int32 len;
-	XfMessage *buf;
+	WbMessage *buf;
 
 	if (ConnGetBytes(conn, (char*) &len, 4) == EOF)
 	{
@@ -427,7 +427,7 @@ ConnGetMessage(XfConn conn, XfMessage **msg)
 	}
 
 	len -= 4;
-	*msg = buf = wballoc(offsetof(XfMessage, data) + len + 1);
+	*msg = buf = wballoc(offsetof(WbMessage, data) + len + 1);
 	buf->len = len;
 	if (len > 0)
 	{
@@ -442,7 +442,7 @@ ConnGetMessage(XfConn conn, XfMessage **msg)
 }
 
 void
-ConnFreeMessage(XfMessage *msg)
+ConnFreeMessage(WbMessage *msg)
 {
 	wbfree(msg);
 }

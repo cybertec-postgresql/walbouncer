@@ -17,7 +17,7 @@
 
 typedef struct {
 	int qtype;
-	XfMessage *msg;
+	WbMessage *msg;
 } XfCommand;
 
 typedef struct {
@@ -28,36 +28,36 @@ typedef struct {
 } ResultCol;
 
 
-static int WbCCProcessStartupPacket(XfConn conn, bool SSLdone);
-static int WbCCReadCommand(XfConn conn, XfCommand *cmd);
-static void WbCCSendReadyForQuery(XfConn conn);
-static MasterConn* WbCCOpenConnectionToMaster(XfConn conn);
+static int WbCCProcessStartupPacket(WbConn conn, bool SSLdone);
+static int WbCCReadCommand(WbConn conn, XfCommand *cmd);
+static void WbCCSendReadyForQuery(WbConn conn);
+static MasterConn* WbCCOpenConnectionToMaster(WbConn conn);
 static void ForbiddenInWalBouncer();
-static void WbCCBeginReportingGUCOptions(XfConn conn, MasterConn* master);
-static void WbCCReportGuc(XfConn conn, MasterConn* master, char *name);
-static void WbCCExecCommand(XfConn conn, MasterConn *master, char *query_string);
-static void WbCCExecIdentifySystem(XfConn conn, MasterConn *master);
-static bool WbCCWaitForData(XfConn conn, MasterConn *master);
-static void WbCCExecStartPhysical(XfConn conn, MasterConn *master, ReplicationCommand *cmd);
-static void WbCCExecTimeline(XfConn conn, MasterConn *master, ReplicationCommand *cmd);
-static Oid* WbCCFindTablespaceOids(XfConn conn);
+static void WbCCBeginReportingGUCOptions(WbConn conn, MasterConn* master);
+static void WbCCReportGuc(WbConn conn, MasterConn* master, char *name);
+static void WbCCExecCommand(WbConn conn, MasterConn *master, char *query_string);
+static void WbCCExecIdentifySystem(WbConn conn, MasterConn *master);
+static bool WbCCWaitForData(WbConn conn, MasterConn *master);
+static void WbCCExecStartPhysical(WbConn conn, MasterConn *master, ReplicationCommand *cmd);
+static void WbCCExecTimeline(WbConn conn, MasterConn *master, ReplicationCommand *cmd);
+static Oid* WbCCFindTablespaceOids(WbConn conn);
 //static void WbCCSendWALRecord(XfConn conn, char *data, int len, XLogRecPtr sentPtr, TimestampTz lastSend);
 //static void WbCCSendEndOfWal(XfConn conn);
-static void WbCCProcessRepliesIfAny(XfConn conn);
-static void WbCCProcessReplyMessage(XfConn conn);
-static void WbCCProcessStandbyReplyMessage(XfConn conn, XfMessage *msg);
-static void WbCCSendKeepalive(XfConn conn, bool request_reply);
-static void WbCCProcessStandbyHSFeedbackMessage(XfConn conn, XfMessage *msg);
-static void WbCCForwardPendingReplies(XfConn conn, MasterConn* master);
-static void WbCCSendCopyBothResponse(XfConn conn);
-static void WbCCSendWalBlock(XfConn conn, ReplMessage *msg, FilterData *fl);
-static void WbCCSendResultset(XfConn conn, int ncols, ResultCol *cols);
-static void WbCCSendErrorReport(XfConn conn, LogLevel level, char *message, char* detail);
+static void WbCCProcessRepliesIfAny(WbConn conn);
+static void WbCCProcessReplyMessage(WbConn conn);
+static void WbCCProcessStandbyReplyMessage(WbConn conn, WbMessage *msg);
+static void WbCCSendKeepalive(WbConn conn, bool request_reply);
+static void WbCCProcessStandbyHSFeedbackMessage(WbConn conn, WbMessage *msg);
+static void WbCCForwardPendingReplies(WbConn conn, MasterConn* master);
+static void WbCCSendCopyBothResponse(WbConn conn);
+static void WbCCSendWalBlock(WbConn conn, ReplMessage *msg, FilterData *fl);
+static void WbCCSendResultset(WbConn conn, int ncols, ResultCol *cols);
+static void WbCCSendErrorReport(WbConn conn, LogLevel level, char *message, char* detail);
 
 
 
 void
-WbCCInitConnection(XfConn conn)
+WbCCInitConnection(WbConn conn)
 {
 	log_info("Received conn on fd %d", conn->fd);
 
@@ -69,7 +69,7 @@ WbCCInitConnection(XfConn conn)
 }
 
 void
-WbCCPerformAuthentication(XfConn conn)
+WbCCPerformAuthentication(WbConn conn)
 {
 	int status = STATUS_ERROR;
 
@@ -90,7 +90,7 @@ WbCCPerformAuthentication(XfConn conn)
 }
 
 static int
-WbCCProcessStartupPacket(XfConn conn, bool SSLdone)
+WbCCProcessStartupPacket(WbConn conn, bool SSLdone)
 {
 	int32 len;
 	void *buf;
@@ -288,7 +288,7 @@ retry1:
 
 
 void
-WbCCCommandLoop(XfConn conn)
+WbCCCommandLoop(WbConn conn)
 {
 	int firstchar;
 	bool send_ready_for_query = true;
@@ -373,7 +373,7 @@ ForbiddenInWalBouncer()
 
 
 static int
-WbCCReadCommand(XfConn conn, XfCommand *cmd)
+WbCCReadCommand(WbConn conn, XfCommand *cmd)
 {
 	int qtype;
 	cmd->qtype = qtype = ConnGetByte(conn);
@@ -390,7 +390,7 @@ WbCCReadCommand(XfConn conn, XfCommand *cmd)
 }
 
 static void
-WbCCSendReadyForQuery(XfConn conn)
+WbCCSendReadyForQuery(WbConn conn)
 {
 	ConnBeginMessage(conn, 'Z');
 	ConnSendInt(conn, 'I', 1);
@@ -399,7 +399,7 @@ WbCCSendReadyForQuery(XfConn conn)
 }
 
 static MasterConn*
-WbCCOpenConnectionToMaster(XfConn conn)
+WbCCOpenConnectionToMaster(WbConn conn)
 {
 	MasterConn* master;
 	char conninfo[MAX_CONNINFO_LEN+1];
@@ -427,7 +427,7 @@ WbCCOpenConnectionToMaster(XfConn conn)
 }
 
 static void
-WbCCBeginReportingGUCOptions(XfConn conn, MasterConn* master)
+WbCCBeginReportingGUCOptions(WbConn conn, MasterConn* master)
 {
 	//conn->sendBufMsgLenPtr
 	 WbCCReportGuc(conn, master, "server_version");
@@ -444,7 +444,7 @@ WbCCBeginReportingGUCOptions(XfConn conn, MasterConn* master)
 }
 
 static void
-WbCCReportGuc(XfConn conn, MasterConn* master, char *name)
+WbCCReportGuc(WbConn conn, MasterConn* master, char *name)
 {
 	const char *value = WbMcParameterStatus(master, name);
 	if (!value)
@@ -456,7 +456,7 @@ WbCCReportGuc(XfConn conn, MasterConn* master, char *name)
 }
 
 static void
-WbCCExecCommand(XfConn conn, MasterConn *master, char *query_string)
+WbCCExecCommand(WbConn conn, MasterConn *master, char *query_string)
 {
 	int parse_rc;
 	ReplicationCommand *cmd;
@@ -508,7 +508,7 @@ WbCCExecCommand(XfConn conn, MasterConn *master, char *query_string)
 #define BYTEAOID 17
 
 static void
-WbCCExecIdentifySystem(XfConn conn, MasterConn *master)
+WbCCExecIdentifySystem(WbConn conn, MasterConn *master)
 {
 	// query master server, pass through data
 	char *primary_sysid;
@@ -551,7 +551,7 @@ WbCCExecIdentifySystem(XfConn conn, MasterConn *master)
  * Returns true if anything interesting happened.
  */
 static bool
-WbCCWaitForData(XfConn conn, MasterConn *master)
+WbCCWaitForData(WbConn conn, MasterConn *master)
 {
 	struct pollfd fds[2];
 	int ret;
@@ -597,7 +597,7 @@ WbCCWaitForData(XfConn conn, MasterConn *master)
 
 
 static void
-WbCCSendResultset(XfConn conn, int ncols, ResultCol *cols)
+WbCCSendResultset(WbConn conn, int ncols, ResultCol *cols)
 {
 	int i;
 
@@ -663,7 +663,7 @@ WbCCSendResultset(XfConn conn, int ncols, ResultCol *cols)
 }
 
 static void
-WbCCExecStartPhysical(XfConn conn, MasterConn *master, ReplicationCommand *cmd)
+WbCCExecStartPhysical(WbConn conn, MasterConn *master, ReplicationCommand *cmd)
 {
 	bool endofwal = false;
 	XLogRecPtr startReceivingFrom;
@@ -762,7 +762,7 @@ again:
 }
 
 static void
-WbCCExecTimeline(XfConn conn, MasterConn *master, ReplicationCommand *cmd)
+WbCCExecTimeline(WbConn conn, MasterConn *master, ReplicationCommand *cmd)
 {
 	TimelineHistory history;
 
@@ -785,7 +785,7 @@ WbCCExecTimeline(XfConn conn, MasterConn *master, ReplicationCommand *cmd)
 }
 
 static Oid*
-WbCCFindTablespaceOids(XfConn conn)
+WbCCFindTablespaceOids(WbConn conn)
 {
 	// TODO: take in other options
 	char conninfo[MAX_CONNINFO_LEN+1];
@@ -822,7 +822,7 @@ WbCCSendWALRecord(XfConn conn, char *data, int len, XLogRecPtr sentPtr, Timestam
 }*/
 
 static void
-WbCCSendEndOfWal(XfConn conn)
+WbCCSendEndOfWal(WbConn conn)
 {
 	ConnBeginMessage(conn, 'c');
 	ConnEndMessage(conn);
@@ -831,7 +831,7 @@ WbCCSendEndOfWal(XfConn conn)
 }
 
 static void
-WbCCProcessRepliesIfAny(XfConn conn)
+WbCCProcessRepliesIfAny(WbConn conn)
 {
 	char firstchar;
 	int r;
@@ -862,7 +862,7 @@ WbCCProcessRepliesIfAny(XfConn conn)
 					WbCCSendEndOfWal(conn);
 				// consume the CopyData message
 				{
-					XfMessage *msg;
+					WbMessage *msg;
 					if (ConnGetMessage(conn, &msg))
 						error("Unexpected EOF on standby connection");
 					ConnFreeMessage(msg);
@@ -878,9 +878,9 @@ WbCCProcessRepliesIfAny(XfConn conn)
 }
 
 static void
-WbCCProcessReplyMessage(XfConn conn)
+WbCCProcessReplyMessage(WbConn conn)
 {
-	XfMessage *msg;
+	WbMessage *msg;
 	if (ConnGetMessage(conn, &msg))
 		error("unexpected EOF from receiver");
 
@@ -900,7 +900,7 @@ WbCCProcessReplyMessage(XfConn conn)
 }
 
 static void
-WbCCProcessStandbyReplyMessage(XfConn conn, XfMessage *msg)
+WbCCProcessStandbyReplyMessage(WbConn conn, WbMessage *msg)
 {
 	StandbyReplyMessage *reply = &(conn->lastReply);
 
@@ -926,7 +926,7 @@ WbCCProcessStandbyReplyMessage(XfConn conn, XfMessage *msg)
 }
 
 static void
-WbCCSendKeepalive(XfConn conn, bool request_reply)
+WbCCSendKeepalive(WbConn conn, bool request_reply)
 {
 	log_debug1("sending keepalive message %X/%X%s",
 			(uint32) (conn->sentPtr>>32),
@@ -942,7 +942,7 @@ WbCCSendKeepalive(XfConn conn, bool request_reply)
 }
 
 static void
-WbCCProcessStandbyHSFeedbackMessage(XfConn conn, XfMessage *msg)
+WbCCProcessStandbyHSFeedbackMessage(WbConn conn, WbMessage *msg)
 {
 	HSFeedbackMessage *feedback = &(conn->lastFeedback);
 	/*
@@ -962,7 +962,7 @@ WbCCProcessStandbyHSFeedbackMessage(XfConn conn, XfMessage *msg)
 }
 
 static void
-WbCCForwardPendingReplies(XfConn conn, MasterConn* master)
+WbCCForwardPendingReplies(WbConn conn, MasterConn* master)
 {
 	if (!conn->replyForwarded)
 	{
@@ -977,7 +977,7 @@ WbCCForwardPendingReplies(XfConn conn, MasterConn* master)
 }
 
 static void
-WbCCSendCopyBothResponse(XfConn conn)
+WbCCSendCopyBothResponse(WbConn conn)
 {
 	/* Send a CopyBothResponse message, and start streaming */
 	ConnBeginMessage(conn, 'W');
@@ -988,7 +988,7 @@ WbCCSendCopyBothResponse(XfConn conn)
 }
 
 static void
-WbCCSendWalBlock(XfConn conn, ReplMessage *msg, FilterData *fl)
+WbCCSendWalBlock(WbConn conn, ReplMessage *msg, FilterData *fl)
 {
 	XLogRecPtr dataStart;
 	int msgOffset = 0;
@@ -1089,7 +1089,7 @@ ErrorSeverity(LogLevel level)
 }
 
 static void
-WbCCSendErrorReport(XfConn conn, LogLevel level, char *message, char* detail)
+WbCCSendErrorReport(WbConn conn, LogLevel level, char *message, char* detail)
 {
 	ConnBeginMessage(conn, level >= LOG_ERROR ? 'E' : 'N');
 
