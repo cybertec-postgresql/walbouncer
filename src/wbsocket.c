@@ -63,6 +63,7 @@ ConnCreate(WbSocket server)
 	socklen_t addr_size;
 	WbConn conn = wballoc0(sizeof(WbPortStruct));
 
+	log_debug2("Waiting for connections...");
 	conn->fd = accept(server->fd, (struct sockaddr *) &their_addr, &addr_size);
 
 	conn->recvBuffer = wballoc(RECV_BUFFER_SIZE);
@@ -82,8 +83,6 @@ ConnCreate(WbSocket server)
 
 	conn->replyForwarded = true;
 	conn->feedbackForwarded = true;
-
-	log_info("Waiting for connections.");
 
 	return conn;
 }

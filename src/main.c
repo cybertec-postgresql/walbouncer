@@ -5,38 +5,191 @@
 
 
 #include <getopt.h>
-
+#include <unistd.h>
+#include <sys/wait.h>
 
 #include "wbutils.h"
 #include "wbsocket.h"
 #include "wbsignals.h"
 #include "wbclientconn.h"
 
+typedef enum {
+	SLOT_UNUSED,
+	SLOT_ACTIVE
+} BouncerSlotState;
+
+typedef struct {
+	pid_t pid;
+	BouncerSlotState state;
+} BouncerSlot;
+typedef struct {
+	BouncerSlot* slots;
+	int numSlots;
+} BouncerArrayStruct;
+
 char* listen_port = "5433";
 char* master_host = "localhost";
 char* master_port = "5432";
+BouncerArrayStruct BouncerArray;
+
+static pid_t fork_process();
+static void InitializeBouncerArray();
+static void ResizeBouncerArray(int newSize);
+
+static pid_t fork_process()
+{
+	pid_t result;
+
+	fflush(NULL);
+
+	result = fork();
+	return result;
+}
+
+static void
+InitializeBouncerArray()
+{
+	BouncerArray.numSlots = 0;
+	ResizeBouncerArray(8);
+}
+static void
+ResizeBouncerArray(int newSize)
+{
+	int i;
+	int oldSize = BouncerArray.numSlots;
+
+	log_debug2("Resizing bouncer array from %d to %d", oldSize, newSize);
+	sleep(1);
+
+	if (oldSize == 0)
+		BouncerArray.slots = wballoc0(sizeof(BouncerSlot)*newSize);
+	else
+		BouncerArray.slots = rewballoc(BouncerArray.slots, sizeof(BouncerSlot)*newSize);
+
+	for (i = oldSize; i < newSize; i++)
+	{
+		BouncerArray.slots[i].pid = 0;
+		BouncerArray.slots[i].state = SLOT_UNUSED;
+	}
+	BouncerArray.numSlots = newSize;
+}
+
+static BouncerSlot*
+FindBouncerSlot()
+{
+	do
+	{
+		int i;
+		for (i = 0; i < BouncerArray.numSlots; i++)
+		{
+			if (BouncerArray.slots[i].state == SLOT_UNUSED)
+				return &(BouncerArray.slots[i]);
+		}
+		ResizeBouncerArray(BouncerArray.numSlots * 2);
+	} while (true);
+}
+
+static void
+CleanupBackend(int pid, int exitstatus)
+{
+	int i;
+	BouncerSlot *slot = NULL;
+
+	for (i = 0; i < BouncerArray.numSlots; i++)
+		if (BouncerArray.slots[i].pid == pid)
+			slot = &(BouncerArray.slots[i]);
+
+	if (!slot)
+	{
+		log_warning("Trying to clean non-existant backend with PID %d", pid);
+		return;
+	}
+
+	log_debug2("Backend %d exited in state %d", pid, slot->state);
+
+	if (((exitstatus & 0xff00) >> 8) != 1 && exitstatus != 0)
+	{
+		log_warning("Backend with PID %d crashed with exit code %d", pid, exitstatus);
+	}
+	
+	/* Mark the slot as empty */
+	slot->pid = 0;
+	slot->state = SLOT_UNUSED;
+}
+
+static void
+BlockSignals()
+{}
+
+static void
+UnblockSignals()
+{}
+
+static void
+reaper(int signum)
+{
+	int save_errno = errno;
+	int pid;
+	int exitstatus;
+
+	BlockSignals();
+
+	log_debug2("Reaping dead child process");
+
+	while ((pid = waitpid(-1, &exitstatus, WNOHANG)) > 0)
+		CleanupBackend(pid, exitstatus);
+
+	UnblockSignals();
+	errno = save_errno;
+}
 
 void WalBouncerMain()
 {
 	// set up signals for child reaper, etc.
 	WbInitializeSignals();
+	signal(SIGCHLD, reaper);
 
 	// open socket for listening
 	WbSocket server = OpenServerSocket(listen_port);
 	WbConn conn;
+	while (!stopRequested)
+	{
+		pid_t pid;
+		conn = ConnCreate(server);
+		conn->master_host = master_host;
+		conn->master_port = master_port;
 
-	conn = ConnCreate(server);
-	conn->master_host = master_host;
-	conn->master_port = master_port;
+		log_debug2("Received new connection");
 
-	WbCCInitConnection(conn);
+		pid = fork_process();
+		if (pid == 0) /* child */
+		{
+			CloseSocket(server);
 
-	WbCCPerformAuthentication(conn);
+			WbCCInitConnection(conn);
 
-	WbCCCommandLoop(conn);
+			WbCCPerformAuthentication(conn);
 
-	CloseConn(conn);
+			WbCCCommandLoop(conn);
 
+			CloseConn(conn);
+
+			return;
+		}
+
+		if (pid < 0)
+		{
+			/* failed fork */
+		}
+		else if (pid > 0)
+		{
+			BouncerSlot* slot = FindBouncerSlot();
+			slot->pid = pid;
+			slot->state = SLOT_ACTIVE;
+			CloseConn(conn);
+		}
+	}
+	log_info("Stopping server.");
 	CloseSocket(server);
 }
 
@@ -104,7 +257,7 @@ main(int argc, char **argv)
 		}
 	}
 
-
+	InitializeBouncerArray();
 	WalBouncerMain();
 	return 0;
 }
