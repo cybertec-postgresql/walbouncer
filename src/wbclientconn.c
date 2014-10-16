@@ -511,7 +511,6 @@ WbCCExecCommand(WbConn conn, MasterConn *master, char *query_string)
 	switch (cmd->command)
 	{
 		case REPL_IDENTIFY_SYSTEM:
-			WbCCSendErrorReport(conn, LOG_INFO, "Sending test notice", "");
 			WbCCExecIdentifySystem(conn, master);
 			break;
 		case REPL_BASE_BACKUP:
@@ -870,6 +869,52 @@ WbCCLookupFilteringOids(WbConn conn, FilterData *fl)
 				OID_RESOLVE_DATABASES, false,
 				conn->configEntry->filter.exclude_databases,
 				conn->configEntry->filter.n_exclude_databases);
+
+	{
+		char buf[32000];
+		int i;
+		int pos = 0;
+
+		if (conn->configEntry->filter.n_include_tablespaces)
+		{
+			if (pos)
+				pos += snprintf(buf+pos, sizeof(buf) - pos, " ");
+			pos += snprintf(buf+pos, sizeof(buf) - pos, "Tablespaces included: ");
+			for (i = 0; i < conn->configEntry->filter.n_include_tablespaces; i++)
+				pos += snprintf(buf+pos, sizeof(buf) - pos, i ? ", %s" : "%s",
+						conn->configEntry->filter.include_tablespaces[i]);
+		}
+
+		if (conn->configEntry->filter.n_exclude_tablespaces)
+		{
+			if (pos)
+				pos += snprintf(buf+pos, sizeof(buf) - pos, " ");
+			pos += snprintf(buf+pos, sizeof(buf) - pos, "Tablespaces excluded: ");
+			for (i = 0; i < conn->configEntry->filter.n_exclude_tablespaces; i++)
+				pos += snprintf(buf+pos, sizeof(buf) - pos, i ? ", %s" : "%s",
+						conn->configEntry->filter.exclude_tablespaces[i]);
+
+		}
+		if (conn->configEntry->filter.n_include_databases)
+		{
+			if (pos)
+				pos += snprintf(buf+pos, sizeof(buf) - pos, " ");
+			pos += snprintf(buf+pos, sizeof(buf) - pos, "Databases included: ");
+			for (i = 0; i < conn->configEntry->filter.n_include_databases; i++)
+				pos += snprintf(buf+pos, sizeof(buf) - pos, i ? ", %s" : "%s",
+						conn->configEntry->filter.include_databases[i]);
+		}
+		if (conn->configEntry->filter.n_exclude_databases)
+		{
+			if (pos)
+				pos += snprintf(buf+pos, sizeof(buf) - pos, " ");
+			pos += snprintf(buf+pos, sizeof(buf) - pos, "Databases excluded: ");
+			for (i = 0; i < conn->configEntry->filter.n_exclude_databases; i++)
+				pos += snprintf(buf+pos, sizeof(buf) - pos, i ? ", %s" : "%s",
+						conn->configEntry->filter.exclude_databases[i]);
+		}
+		WbCCSendErrorReport(conn, LOG_INFO, "WAL stream is being filtered", buf);
+	}
 
 	WbMcCloseConnection(master);
 }
