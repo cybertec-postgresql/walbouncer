@@ -1,0 +1,17 @@
+listen_port: 5433
+master:
+    host: localhost
+    port: 5432
+configurations:
+    - slave1:
+        match:
+            application_name: slave1
+        filter:
+            include_tablespaces: [spc_slave1]
+            exclude_databases: [test]
+    - slave2:
+        match:
+            application_name: slave2
+        filter:
+            include_tablespaces: [spc_slave2]
+

@@ -3,6 +3,7 @@ src/parser/*.o
 src/parser/repl_gram.c
 src/parser/repl_scanner.c
 src/walbouncer
+src/unittests/test
 .cproject
 .project
 .settings/**

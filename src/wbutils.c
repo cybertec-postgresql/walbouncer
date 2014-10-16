@@ -149,3 +149,32 @@ timestamptz_to_str(TimestampTz t)
 	sprintf(buf+offset, ".%06d+00", (int32) (t % USECS_PER_SEC));
 	return buf;
 }
+
+bool
+parse_hostmask(char *string, hostmask *result)
+{
+	int matched;
+
+	result->addr = 0;
+	result->mask = 0;
+
+	matched = sscanf(string, " %hhd.%hhd.%hhd.%hhd/%hhd ",
+			((uint8*)&(result->addr) + 0),
+			((uint8*)&(result->addr) + 1),
+			((uint8*)&(result->addr) + 2),
+			((uint8*)&(result->addr) + 3),
+			&(result->mask)
+	);
+	if (matched < 4)
+		return false;
+	if (matched == 4)
+		result->mask = 32;
+
+	return true;
+}
+
+bool match_hostmask(hostmask *match, uint32 host)
+{
+	uint32 bitmask = htonl(0xFFFFFFFF << (32 - match->mask));
+	return (match->addr & bitmask) == (host & bitmask);
+}

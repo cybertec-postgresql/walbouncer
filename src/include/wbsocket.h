@@ -3,6 +3,7 @@
 
 #include "wbglobals.h"
 #include "wbproto.h"
+#include "wbconfig.h"
 
 typedef struct {
 	int fd;
@@ -29,6 +30,14 @@ typedef struct {
 	int recvPointer;
 	int recvLength;
 
+	struct {
+		uint32 addr;
+		uint16 port;
+	} client;
+
+	// Matched configuration entry
+	wb_config_entry *configEntry;
+
 	// Sending buffer management
 	char *sendBuffer;
 	int sendBufSize;
@@ -39,16 +48,14 @@ typedef struct {
 	ProtocolVersion proto;
 
 	char *master_host;
-	char *master_port;
+	int master_port;
 
 	char *database_name;
 	char *user_name;
+	char *application_name;
 	char *cmdline_options;
 	char *guc_options;
 	int gucs_len;
-
-	// Filtering info
-	char *include_tablespaces;
 
 	// Sending state
 	XLogRecPtr sentPtr;
@@ -75,7 +82,7 @@ typedef enum {
 } ConnFlushMode;
 
 WbSocket
-OpenServerSocket(char *port);
+OpenServerSocket(int port);
 
 WbConn
 ConnCreate(WbSocket server);
@@ -131,5 +138,9 @@ ConnFreeMessage(WbMessage *msg);
 
 void
 hexdump(char *buf, int amount);
+
+void InitDeathWatchHandle();
+void CloseDeathwatchPort();
+bool DaemonIsAlive();
 
 #endif

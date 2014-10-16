@@ -228,7 +228,7 @@ replication_scanner_init(const char *str)
 	/*
 	 * Make a scan buffer with special termination needed by flex.
 	 */
-	scanbuf = (char *) xfalloc(slen + 2);
+	scanbuf = (char *) wballoc(slen + 2);
 	memcpy(scanbuf, str, slen);
 	scanbuf[slen] = scanbuf[slen + 1] = YY_END_OF_BUFFER_CHAR;
 	scanbufhandle = yy_scan_buffer(scanbuf, slen + 2);

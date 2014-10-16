@@ -389,6 +389,7 @@ WriteNoopRecord(FilterData *fl, ReplMessage *msg)
 
 		if (!toCopy)
 			return;
+
 		targetpos += amount + fl->headerLen;
 
 		// Copy the rest if any
@@ -404,21 +405,48 @@ FilterClearBuffer(FilterData *fl)
 }
 
 static bool
+OidInZeroTermOidList(Oid search, Oid *list)
+{
+	Oid *cur = list;
+	for (; *cur; cur++)
+		if (search == *cur)
+			return true;
+	return false;
+}
+
+static bool
 NeedToFilter(FilterData *fl, RelFileNode *node)
 {
-	Oid *tblspc_oid;
+	if (fl->include_tablespaces)
+		if (!OidInZeroTermOidList(node->spcNode, fl->include_tablespaces))
+		{
+			log_debug2("Data in tablespace %d is not included", node->spcNode);
+			return true;
+		}
 
-	if (!fl->include_tablespaces)
-		return false;
+	if (fl->exclude_tablespaces)
+		if (OidInZeroTermOidList(node->spcNode, fl->exclude_tablespaces))
+		{
+			log_debug2("Data in tablespace %d is excluded", node->spcNode);
+			return true;
+		}
 
-	tblspc_oid = fl->include_tablespaces;
-	for (; *tblspc_oid; tblspc_oid++)
-	{
-		if (node->spcNode == *tblspc_oid)
-			return false;
-	}
-	log_debug2("Filtering data in tablespace %d", node->spcNode);
-	return true;
+	if (fl->include_databases)
+		if (!OidInZeroTermOidList(node->dbNode, fl->include_databases))
+		{
+			log_debug2("Data in database %d is not included", node->dbNode);
+			return true;
+		}
+
+	if (fl->exclude_databases)
+		if (OidInZeroTermOidList(node->dbNode, fl->exclude_databases))
+		{
+			log_debug2("Data in database %d is excluded", node->dbNode);
+			return true;
+		}
+
+	/* If configuration doesn't say otherwise we allow it */
+	return false;
 }
 
 static void

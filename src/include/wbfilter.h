@@ -34,6 +34,9 @@ typedef struct {
 	char unsentBuffer[FL_BUFFER_LEN];
 
 	Oid *include_tablespaces;
+	Oid *include_databases;
+	Oid *exclude_tablespaces;
+	Oid *exclude_databases;
 } FilterData;
 
 FilterData* WbFCreateProcessingState(XLogRecPtr startPos);

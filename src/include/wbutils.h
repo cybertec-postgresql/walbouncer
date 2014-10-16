@@ -54,4 +54,13 @@ void write64(char *buf, uint64 v);
 void write32(char *buf, uint32 v);
 
 const char * timestamptz_to_str(TimestampTz t);
+
+typedef struct {
+	uint32 addr;
+	uint8 mask;
+} hostmask;
+
+bool parse_hostmask(char *string, hostmask *result);
+bool match_hostmask(hostmask *match, uint32 host);
+
 #endif

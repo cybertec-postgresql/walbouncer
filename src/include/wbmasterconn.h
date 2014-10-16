@@ -32,6 +32,11 @@ typedef struct {
 	char *content;
 } TimelineHistory;
 
+typedef enum {
+	OID_RESOLVE_TABLESPACES,
+	OID_RESOLVE_DATABASES
+} OidResolveKind;
+
 typedef struct MasterConn MasterConn;
 
 MasterConn* WbMcOpenConnection(const char *conninfo);
@@ -46,6 +51,6 @@ bool WbMcIdentifySystem(MasterConn* master,
 		char** primary_sysid, char** primary_tli, char** primary_xpos);
 bool WbMcGetTimelineHistory(MasterConn* master, TimeLineID timeline,
 		TimelineHistory *history);
-Oid * WbMcResolveTablespaceOids(const char *conninfo, const char* tablespace_names);
+Oid * WbMcResolveOids(MasterConn *master, OidResolveKind kind, bool include, char** names, int n_items);
 const char *WbMcParameterStatus(MasterConn *master, char *name);
 #endif

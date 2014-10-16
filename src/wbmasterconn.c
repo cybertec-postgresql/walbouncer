@@ -376,24 +376,52 @@ WbMcGetTimelineHistory(MasterConn* master, TimeLineID timeline,
     PQclear(result);
 	return true;
 }
+
 Oid *
-WbMcResolveTablespaceOids(const char *conninfo, const char* tablespace_names)
+WbMcResolveOids(MasterConn *master, OidResolveKind kind, bool include, char** names, int n_items)
 {
-	MasterConn* master = WbMcOpenConnection(conninfo);
 	Oid *oids;
 	PGresult *res;
 	int oidcount;
 	int i;
+	char sql[1000];
+	int sqlpos = 0;
+	const char * const* paramValues = (const char * const*) names;
+	char *itemkind = "";
 
-	const char *paramValues[1] = {tablespace_names};
-	res = PQexecParams(master->conn,
-		"SELECT oid FROM pg_tablespace WHERE spcname = "
-		"ANY (string_to_array($1, ',')) "
-		"OR spcname IN ('pg_default', 'pg_global')",
-		1, NULL, paramValues,
+	switch (kind)
+	{
+		case OID_RESOLVE_TABLESPACES:
+			sqlpos = snprintf(sql, sizeof(sql),
+					"SELECT oid, spcname FROM pg_tablespace WHERE spcname IN (");
+			itemkind = "tablespaces";
+			if (include)
+				sqlpos += snprintf(sql+sqlpos, (sizeof(sql) - sqlpos),
+									"'pg_default', 'pg_global', ");
+			break;
+		case OID_RESOLVE_DATABASES:
+			sqlpos = snprintf(sql, sizeof(sql),
+					"SELECT oid, datname FROM pg_database WHERE datname IN (");
+			itemkind = "databases";
+			if (include)
+				sqlpos += snprintf(sql+sqlpos, (sizeof(sql) - sqlpos),
+									"'template0', 'template1', ");
+			break;
+	}
+
+	for (i = 0; i < n_items; i++)
+	{
+		sqlpos += snprintf(sql + sqlpos, (sizeof(sql) - sqlpos), i ? ", $%d" : "$%d", i+1);
+	}
+	sqlpos += snprintf(sql + sqlpos, (sizeof(sql) - sqlpos), ");");
+	if (sqlpos >= sizeof(sql))
+		error("Too many %s specified", itemkind);
+
+	res = PQexecParams(master->conn, sql,
+		n_items, NULL, paramValues,
 		NULL, NULL, 0);
 	if (PQresultStatus(res) != PGRES_TUPLES_OK)
-		error("Could not retrieve tablespaces: %s", PQerrorMessage(master->conn));
+		error("Could not retrieve %s: %s", itemkind, PQerrorMessage(master->conn));
 
 	oidcount = PQntuples(res);
 	oids = wballoc0(sizeof(Oid)*(oidcount+1));
@@ -401,12 +429,10 @@ WbMcResolveTablespaceOids(const char *conninfo, const char* tablespace_names)
 	for (i = 0; i < oidcount; i++)
 	{
 		char *oid = PQgetvalue(res, i, 0);
-		log_debug1("Found tablespace oid %s %d", oid, atoi(oid));
 		oids[i] = atoi(oid);
+		log_debug1("Found %s oid for %s: %d", itemkind, PQgetvalue(res, i, 1), oids[i]);
 	}
 	PQclear(res);
-
-	WbMcCloseConnection(master);
 
 	return oids;
 }

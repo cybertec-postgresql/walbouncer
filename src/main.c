@@ -8,6 +8,7 @@
 #include <unistd.h>
 #include <sys/wait.h>
 
+#include "wbconfig.h"
 #include "wbutils.h"
 #include "wbsocket.h"
 #include "wbsignals.h"
@@ -27,9 +28,7 @@ typedef struct {
 	int numSlots;
 } BouncerArrayStruct;
 
-char* listen_port = "5433";
-char* master_host = "localhost";
-char* master_port = "5432";
+char* config_filename = NULL;
 BouncerArrayStruct BouncerArray;
 
 static pid_t fork_process();
@@ -143,6 +142,20 @@ reaper(int signum)
 	errno = save_errno;
 }
 
+static int
+InitMasks(fd_set *rmask, WbSocket server)
+{
+	int maxsock = - 1;
+	int fd = server->fd;
+	FD_ZERO(rmask);
+
+	FD_SET(fd, rmask);
+	if (fd > maxsock)
+		maxsock = fd;
+
+	return maxsock + 1;
+}
+
 void WalBouncerMain()
 {
 	// set up signals for child reaper, etc.
@@ -150,14 +163,38 @@ void WalBouncerMain()
 	signal(SIGCHLD, reaper);
 
 	// open socket for listening
-	WbSocket server = OpenServerSocket(listen_port);
+	WbSocket server = OpenServerSocket(CurrentConfig->listen_port);
 	WbConn conn;
+	fd_set readmask;
+	int nSock;
+
+	nSock = InitMasks(&readmask, server);
+
+
 	while (!stopRequested)
 	{
 		pid_t pid;
+		{
+			fd_set rmask;
+			int selres;
+			struct timeval timeout;
+			timeout.tv_sec = 60;
+			timeout.tv_usec = 0;
+
+			memcpy((char*) &rmask, (char*)&readmask, sizeof(fd_set));
+			selres = select(nSock, &rmask, NULL, NULL, &timeout);
+			log_debug2("select returned %d", selres)
+			/* Now check the select() result */
+			if (selres < 0)
+				if (errno != EINTR && errno != EWOULDBLOCK)
+					error("select failed");
+			if (selres <= 0)
+				continue;
+		}
+
 		conn = ConnCreate(server);
-		conn->master_host = master_host;
-		conn->master_port = master_port;
+		conn->master_host = CurrentConfig->master.host;
+		conn->master_port = CurrentConfig->master.port;
 
 		log_debug2("Received new connection");
 
@@ -165,6 +202,7 @@ void WalBouncerMain()
 		if (pid == 0) /* child */
 		{
 			CloseSocket(server);
+			CloseDeathwatchPort();
 
 			WbCCInitConnection(conn);
 
@@ -200,6 +238,7 @@ static void usage()
 	printf("%s proxys PostgreSQL streaming replication connections and optionally does filtering\n\n", progname);
 	printf("Options:\n");
 	printf("  -?, --help                Print this message\n");
+	printf("  -c, --config=FILE         Read configuration from this file.\n");
 	printf("  -h, --host=HOST           Connect to master on this host. Default localhost\n");
 	printf("  -P, --masterport=PORT     Connect to master on this port. Default 5432\n");
 	printf("  -p, --port=PORT           Run proxy on this port. Default 5433\n");
@@ -213,10 +252,13 @@ main(int argc, char **argv)
 	int c;
 	progname = "walbouncer";
 
+	CurrentConfig = wb_new_config();
+
 	while (1)
 	{
 		static struct option long_options[] =
 		{
+				{"config", required_argument, 0, 'c'},
 				{"port", required_argument, 0, 'p'},
 				{"host", required_argument, 0, 'h'},
 				{"masterport", required_argument, 0, 'P'},
@@ -226,7 +268,7 @@ main(int argc, char **argv)
 		};
 		int option_index = 0;
 
-		c = getopt_long(argc, argv, "p:h:P:v?",
+		c = getopt_long(argc, argv, "c:p:h:P:v?",
 				long_options, &option_index);
 
 		if (c == -1)
@@ -234,14 +276,17 @@ main(int argc, char **argv)
 
 		switch (c)
 		{
+		case 'c':
+			config_filename = wbstrdup(optarg);
+			break;
 		case 'p':
-			listen_port = wbstrdup(optarg);
+			CurrentConfig->listen_port = ensure_atoi(optarg);
 			break;
 		case 'h':
-			master_host = wbstrdup(optarg);
+			CurrentConfig->master.host = wbstrdup(optarg);
 			break;
 		case 'P':
-			master_port = wbstrdup(optarg);
+			CurrentConfig->master.port = ensure_atoi(optarg);
 			break;
 		case 'v':
 			if (loggingLevel > LOG_LOWEST_LEVEL)
@@ -257,7 +302,12 @@ main(int argc, char **argv)
 		}
 	}
 
+	if (config_filename)
+		wb_read_config(CurrentConfig, config_filename);
+
 	InitializeBouncerArray();
+	InitDeathWatchHandle();
+
 	WalBouncerMain();
 	return 0;
 }

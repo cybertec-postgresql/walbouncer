@@ -96,7 +96,7 @@ setup_slave()
     (cat <<EOF
         recovery_target_timeline = 'latest'
         standby_mode = on
-        primary_conninfo = 'host=localhost port=5433 user=postgres application_name=spc_$SLAVE_NAME'
+        primary_conninfo = 'host=localhost port=5433 user=postgres application_name=$SLAVE_NAME'
 EOF
     ) > "$WD/$SLAVE_NAME/recovery.conf"
     rm "$WD/$SLAVE_NAME/pg_log/postgresql.log"
@@ -106,7 +106,7 @@ EOF
 start_walbouncer()
 {
     msg "Starting walbouncer on port 5433 (output in walbouncer.log)"
-    nohup $WALBOUNCER -p 5433 -vv > walbouncer.log &
+    nohup $WALBOUNCER -c democonf.yaml -vv > walbouncer.log &
 }
 
 start_slave()

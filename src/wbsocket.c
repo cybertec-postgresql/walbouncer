@@ -19,22 +19,25 @@
 #define RECV_BUFFER_SIZE 8192
 
 WbSocket
-OpenServerSocket(char *port)
+OpenServerSocket(int port)
 {
 	int status;
 	struct addrinfo hints;
 	struct addrinfo *res;
 	int yes=1;
+	char port_str[6];
+
 	WbSocket sock = wballoc(sizeof(WbSocketStruct));
 
-	log_info("Starting socket on port %s", port);
+	snprintf(port_str, 6, "%d", port);
+	log_info("Starting socket on port %s", port_str);
 
 	memset(&hints, 0, sizeof(hints));
 	hints.ai_family = AF_UNSPEC;
 	hints.ai_socktype = SOCK_STREAM;
 	hints.ai_flags = AI_PASSIVE;
 
-	if ((status = getaddrinfo(NULL, port, &hints, &res)) != 0) {
+	if ((status = getaddrinfo(NULL, port_str, &hints, &res)) != 0) {
 		char *errmsg;
 	    if (asprintf(&errmsg, "getaddrinfo error: %s", gai_strerror(status)) < 0)
 	    	error("Out of memory while reporting error");
@@ -60,11 +63,19 @@ WbConn
 ConnCreate(WbSocket server)
 {
 	struct sockaddr_storage their_addr;
-	socklen_t addr_size;
+	socklen_t addr_size = sizeof(struct sockaddr_storage);
 	WbConn conn = wballoc0(sizeof(WbPortStruct));
 
 	log_debug2("Waiting for connections...");
 	conn->fd = accept(server->fd, (struct sockaddr *) &their_addr, &addr_size);
+	//FIXME: handle errors here
+
+	if (their_addr.ss_family == AF_INET)
+	{
+		struct sockaddr_in* ip_addr = ((struct sockaddr_in*) &their_addr);
+		conn->client.addr = ip_addr->sin_addr.s_addr;
+		conn->client.port = ip_addr->sin_port;
+	}
 
 	conn->recvBuffer = wballoc(RECV_BUFFER_SIZE);
 	conn->recvPointer = 0;
@@ -444,4 +455,47 @@ void
 ConnFreeMessage(WbMessage *msg)
 {
 	wbfree(msg);
+}
+
+#define ALIVE_FD_CHILD 0
+#define ALIVE_FD_DAEMON 1
+int daemon_alive_fds[2] = {-1, -1};
+
+void
+InitDeathWatchHandle()
+{
+	if (pipe(daemon_alive_fds))
+		error("Could not create pipe to monitor daemon death");
+
+	if (fcntl(daemon_alive_fds[ALIVE_FD_CHILD], F_SETFL, O_NONBLOCK))
+		error("Could not set daemon death monitoring pipe to nonblocking");
+
+}
+
+void
+CloseDeathwatchPort()
+{
+	if (close(daemon_alive_fds[ALIVE_FD_DAEMON]))
+		error("Could not close death monitoring pipe");
+	daemon_alive_fds[ALIVE_FD_DAEMON] = -1;
+}
+
+bool
+DaemonIsAlive()
+{
+	char		c;
+	ssize_t		rc;
+
+	rc = read(daemon_alive_fds[ALIVE_FD_CHILD], &c, 1);
+	if (rc < 0)
+	{
+		if (errno == EAGAIN || errno == EWOULDBLOCK)
+			return true;
+		else
+			error("read on postmaster death monitoring pipe failed: %m");
+	}
+	else if (rc > 0)
+		error("unexpected data in death monitoring pipe");
+
+	return false;
 }

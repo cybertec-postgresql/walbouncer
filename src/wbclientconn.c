@@ -40,7 +40,7 @@ static void WbCCExecIdentifySystem(WbConn conn, MasterConn *master);
 static bool WbCCWaitForData(WbConn conn, MasterConn *master);
 static void WbCCExecStartPhysical(WbConn conn, MasterConn *master, ReplicationCommand *cmd);
 static void WbCCExecTimeline(WbConn conn, MasterConn *master, ReplicationCommand *cmd);
-static Oid* WbCCFindTablespaceOids(WbConn conn);
+static void WbCCLookupFilteringOids(WbConn conn, FilterData *fl);
 //static void WbCCSendWALRecord(XfConn conn, char *data, int len, XLogRecPtr sentPtr, TimestampTz lastSend);
 //static void WbCCSendEndOfWal(XfConn conn);
 static void WbCCProcessRepliesIfAny(WbConn conn);
@@ -59,7 +59,7 @@ static void WbCCSendErrorReport(WbConn conn, LogLevel level, char *message, char
 void
 WbCCInitConnection(WbConn conn)
 {
-	log_info("Received conn on fd %d", conn->fd);
+	log_info("Received conn from %08X:%d", conn->client.addr, conn->client.port);
 
 	//FIXME: need to timeout here
 	// setup error log destination
@@ -87,6 +87,39 @@ WbCCPerformAuthentication(WbConn conn)
 	{
 		error("auth failed");
 	}
+}
+
+static bool
+WbCCMatchConfigEntry(WbConn conn)
+{
+	wb_config_list_entry *listitem;
+	for (listitem = CurrentConfig->configurations;
+		 listitem;
+		 listitem = listitem->next)
+	{
+		wb_config_entry *entry = &listitem->entry;
+		log_debug2("Matching config entry %s", entry->name);
+
+		if (entry->match.application_name)
+		{
+			if (!conn->application_name ||
+					strcmp(conn->application_name,
+							entry->match.application_name) != 0)
+				continue;
+			log_debug2("application_name matches");
+		}
+
+		if (entry->match.source_ip.mask > 0)
+		{
+			if (!match_hostmask(&entry->match.source_ip, conn->client.addr))
+				continue;
+			log_debug2("Source IP mask matches");
+		}
+		log_debug2("Matched config entry %s", entry->name);
+		conn->configEntry = entry;
+		return true;
+	}
+	return false;
 }
 
 static int
@@ -199,7 +232,7 @@ retry1:
 	conn->database_name = NULL;
 	conn->user_name = NULL;
 	conn->cmdline_options = NULL;
-	conn->include_tablespaces = NULL;
+	conn->application_name = NULL;
 
 	{
 		int32		offset = sizeof(ProtocolVersion);
@@ -254,7 +287,7 @@ retry1:
 			}
 			else if (strcmp(nameptr, "application_name") == 0)
 			{
-				conn->include_tablespaces = wbstrdup(valptr);
+				conn->application_name = wbstrdup(valptr);
 			}
 			else
 			{
@@ -282,6 +315,10 @@ retry1:
 	/* Check a user name was given. */
 	if (conn->user_name == NULL || conn->user_name[0] == '\0')
 		error("no PostgreSQL user name specified in startup packet");
+
+	/* Match the config entry */
+	if (!WbCCMatchConfigEntry(conn))
+		error("No configuration entry matches the connection");
 
 	return STATUS_OK;
 }
@@ -413,7 +450,7 @@ WbCCOpenConnectionToMaster(WbConn conn)
 	}
 
 	if (conn->master_port)
-		buf +=  snprintf(buf, buf_end - buf, "port=%s ", conn->master_port);
+		buf +=  snprintf(buf, buf_end - buf, "port=%d ", conn->master_port);
 
 	if (conn->user_name)
 		buf += snprintf(buf, buf_end - buf, "user=%s ", conn->user_name);
@@ -662,6 +699,7 @@ WbCCSendResultset(WbConn conn, int ncols, ResultCol *cols)
 	ConnEndMessage(conn);
 }
 
+
 static void
 WbCCExecStartPhysical(WbConn conn, MasterConn *master, ReplicationCommand *cmd)
 {
@@ -670,16 +708,7 @@ WbCCExecStartPhysical(WbConn conn, MasterConn *master, ReplicationCommand *cmd)
 	ReplMessage *msg = wballoc(sizeof(ReplMessage));
 	FilterData *fl = WbFCreateProcessingState(cmd->startpoint);
 
-
-	/* TODO: refactor this into wbfilter */
-	if (conn->include_tablespaces)
-	{
-		log_info("Including tablespaces: %s", conn->include_tablespaces);
-		fl->include_tablespaces = WbCCFindTablespaceOids(conn);
-	} else {
-		fl->include_tablespaces = NULL;
-	}
-
+	WbCCLookupFilteringOids(conn, fl);
 
 	startReceivingFrom = cmd->startpoint;
 again:
@@ -689,6 +718,9 @@ again:
 
 	while (!endofwal)
 	{
+		if (!DaemonIsAlive())
+			error("Master died, exiting!");
+
 		if (!WbCCWaitForData(conn, master))
 			continue;
 
@@ -784,13 +816,23 @@ WbCCExecTimeline(WbConn conn, MasterConn *master, ReplicationCommand *cmd)
 	wbfree(history.content);
 }
 
-static Oid*
-WbCCFindTablespaceOids(WbConn conn)
+static void
+WbCCLookupFilteringOids(WbConn conn, FilterData *fl)
 {
 	// TODO: take in other options
 	char conninfo[MAX_CONNINFO_LEN+1];
 	char *buf = conninfo;
 	char *buf_end = &(conninfo[MAX_CONNINFO_LEN]);
+	MasterConn* master;
+
+	if (!conn->configEntry)
+		return;
+
+	if ((conn->configEntry->filter.n_include_tablespaces +
+		 conn->configEntry->filter.n_include_databases +
+		 conn->configEntry->filter.n_exclude_tablespaces +
+		 conn->configEntry->filter.n_exclude_databases) == 0)
+		return;
 
 	memset(conninfo, 0, sizeof(conninfo));
 
@@ -799,14 +841,37 @@ WbCCFindTablespaceOids(WbConn conn)
 	}
 
 	if (conn->master_port)
-		buf +=  snprintf(buf, buf_end - buf, "port=%s ", conn->master_port);
+		buf +=  snprintf(buf, buf_end - buf, "port=%d ", conn->master_port);
 
 	if (conn->user_name)
 		buf += snprintf(buf, buf_end - buf, "user=%s ", conn->user_name);
 
 	buf += snprintf(buf, buf_end - buf, "dbname=postgres application_name=walbouncer");
 
-	return WbMcResolveTablespaceOids(conninfo, conn->include_tablespaces);
+	master = WbMcOpenConnection(conninfo);
+
+	if (conn->configEntry->filter.n_include_tablespaces)
+		fl->include_tablespaces = WbMcResolveOids(master,
+				OID_RESOLVE_TABLESPACES, true,
+				conn->configEntry->filter.include_tablespaces,
+				conn->configEntry->filter.n_include_tablespaces);
+	if (conn->configEntry->filter.n_include_databases)
+		fl->include_databases = WbMcResolveOids(master,
+				OID_RESOLVE_DATABASES, true,
+				conn->configEntry->filter.include_databases,
+				conn->configEntry->filter.n_include_databases);
+	if (conn->configEntry->filter.n_exclude_tablespaces)
+		fl->exclude_tablespaces = WbMcResolveOids(master,
+				OID_RESOLVE_TABLESPACES, false,
+				conn->configEntry->filter.exclude_tablespaces,
+				conn->configEntry->filter.n_exclude_tablespaces);
+	if (conn->configEntry->filter.n_exclude_databases)
+		fl->exclude_databases = WbMcResolveOids(master,
+				OID_RESOLVE_DATABASES, false,
+				conn->configEntry->filter.exclude_databases,
+				conn->configEntry->filter.n_exclude_databases);
+
+	WbMcCloseConnection(master);
 }
 /* TODO: Probably not necessary
 static void
