@@ -526,7 +526,6 @@ WbCCExecCommand(WbConn conn, MasterConn *master, char *query_string)
 			break;
 		case REPL_TIMELINE:
 			WbCCExecTimeline(conn, master, cmd);
-			//TODO
 			break;
 	}
 
