@@ -1,0 +1,44 @@
+# The port that walbouncer will listen on
+listen_port: 5433
+
+# Connection settings for the replication master server
+master:
+    host: localhost
+    port: 5432
+
+# A list of configurations, each one a one entry mapping with the key
+# specifying a name for the configuration. First matching configuration
+# is chosen. If none of the configurations match the client is denied access.
+configurations:
+    # Name of the configuration
+    - examplereplica1:
+        # Conditions under which this configuration matches. All of the entries
+        # must match.
+        match:
+            # Check application_name of the client for an exact match.
+            application_name: slave1
+            # Matches the IP address the client is connecting from. Can be a
+            # specific IP or a hostmask
+            source_ip: 192.168.0.0/16
+        # Filter clauses can be omitted if filtering is not necessary. A record
+        # is replicated if all of the include directives match and none of the
+        # exclude directives match.
+        filter:
+            # If specified only tablespaces named in this list and default
+            # tablespaces (pg_default, pg_global) are replicated.
+            include_tablespaces: [spc_slave1, spc_slave2]
+            # If specified tablespaces named in this list are not replicated.
+            exclude_tablespaces:
+                - spc_slave3 # Can also use alternate list syntax
+            # If specified only databases in this list and template databases
+            # are replicated
+            include_databases: [postgres]
+            # If specified databases in this list are skipped.
+            exclude_databases: [test]
+    # Second configuration
+    - examplereplica2:
+        match:
+            application_name: slave2
+        filter:
+            include_tablespaces: [spc_slave2]
+
