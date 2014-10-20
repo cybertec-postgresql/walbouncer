@@ -229,7 +229,7 @@ wb_sequence_of_mappings(wb_config_parser_state *state)
 		result = false;
 	else
 		error("Items of sequence must be mappings, %d", state->event.type );
-	log_debug2("Sequence of mappings, with %d, result %d", state->event.type, result);
+	//log_debug2("Sequence of mappings, with %d, result %d", state->event.type, result);
 	yaml_event_delete(&(state->event));
 	return result;
 }
@@ -365,7 +365,7 @@ wb_read_configurations(wb_config_parser_state *state, wb_configuration *config)
 	while (wb_sequence_of_mappings(state))
 	{
 		wb_config_list_entry *item;
-		log_debug2("Read name of conf key");
+		//log_debug2("Read name of conf key");
 		key = wb_read_key(state);
 		if (!key)
 			error("Configuration mappings must contain a key");
@@ -374,7 +374,7 @@ wb_read_configurations(wb_config_parser_state *state, wb_configuration *config)
 		item->entry.name = key;
 		wb_read_configuration_entry(state, &(item->entry));
 
-		log_debug2("Read end of mapping key");
+		//log_debug2("Read end of mapping key");
 		key = wb_read_key(state);
 		if (key)
 			error("Configuration entries must be maps with a single key");
@@ -391,7 +391,7 @@ wb_read_configuration_entry(wb_config_parser_state *state, wb_config_entry *entr
 	char *key;
 	if (!wb_expect_mapping(state))
 		error("Configuration must be a mapping");
-	log_debug2("Read config entry keys");
+	//log_debug2("Read config entry keys");
 
 	while ((key = wb_read_key(state)))
 	{
