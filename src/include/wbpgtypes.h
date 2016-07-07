@@ -66,7 +66,7 @@ typedef struct BkpBlock
 /*
  * Each page of XLOG file has a header like this:
  */
-#define XLOG_PAGE_MAGIC 0xD07E	/* can be used as WAL version indicator */
+#define XLOG_PAGE_MAGIC 0xD087	/* can be used as WAL version indicator */
 
 typedef struct XLogPageHeaderData
 {
@@ -203,28 +203,24 @@ typedef XLogLongPageHeaderData *XLogLongPageHeader;
 			 (uint32) ((logSegNo) / XLogSegmentsPerXLogId), \
 			 (uint32) ((logSegNo) % XLogSegmentsPerXLogId), offset)
 
-typedef uint32 pg_crc32;
-
+typedef uint32 pg_crc32c;
 typedef uint8 RmgrId;
 
 typedef struct XLogRecord
 {
 	uint32		xl_tot_len;		/* total len of entire record */
 	TransactionId xl_xid;		/* xact id */
-	uint32		xl_len;			/* total len of rmgr data */
+	XLogRecPtr	xl_prev;		/* ptr to previous record in log */
 	uint8		xl_info;		/* flag bits, see below */
 	RmgrId		xl_rmid;		/* resource manager for this record */
 	/* 2 bytes of padding here, initialize to zero */
-	XLogRecPtr	xl_prev;		/* ptr to previous record in log */
-	pg_crc32	xl_crc;			/* CRC for this record */
+	pg_crc32c	xl_crc;			/* CRC for this record */
 
-	/* If MAXALIGN==8, there are 4 wasted bytes here */
-
-	/* ACTUAL LOG DATA FOLLOWS AT END OF STRUCT */
+	/* XLogRecordBlockHeaders and XLogRecordDataHeader follow, no padding */
 
 } XLogRecord;
 
-#define SizeOfXLogRecord	MAXALIGN(sizeof(XLogRecord))
+#define SizeOfXLogRecord	(offsetof(XLogRecord, xl_crc) + sizeof(pg_crc32c))
 
 #define XLogRecGetData(record)	((char*) (record) + SizeOfXLogRecord)
 
@@ -257,42 +253,66 @@ typedef struct XLogRecord
 #define XLOG_SWITCH 0x40
 #define XLOG_FPI 0xA0
 
+#define REC_HEADER_LEN 24
 
-/* Initialize a CRC accumulator */
-#define INIT_CRC32(crc) ((crc) = 0xFFFFFFFF)
+#define XLR_MAX_BLOCK_ID			32
 
-/* Finish a CRC calculation */
-#define FIN_CRC32(crc)	((crc) ^= 0xFFFFFFFF)
+typedef struct XLogRecordBlockHeader
+{
+	uint8		id;				/* block reference ID */
+	uint8		fork_flags;		/* fork within the relation, and flags */
+	uint16		data_length;	/* number of payload bytes (not including page
+								 * image) */
 
-/* Accumulate some (more) bytes into a CRC */
-#define COMP_CRC32(crc, data, len)	\
-do { \
-	const unsigned char *__data = (const unsigned char *) (data); \
-	uint32		__len = (len); \
-\
-	while (__len-- > 0) \
-	{ \
-		int		__tab_index = ((int) ((crc) >> 24) ^ *__data++) & 0xFF; \
-		(crc) = pg_crc32_table[__tab_index] ^ ((crc) << 8); \
-	} \
-} while (0)
+	/* If BKPBLOCK_HAS_IMAGE, an XLogRecordBlockImageHeader struct follows */
+	/* If BKPBLOCK_SAME_REL is not set, a RelFileNode follows */
+	/* BlockNumber follows */
+} XLogRecordBlockHeader;
 
-#define COMP_CRC32_ZERO(crc, len)	\
-do { \
-	uint32		__len = (len); \
-\
-	while (__len-- > 0) \
-	{ \
-		int		__tab_index = ((int) ((crc) >> 24)) & 0xFF; \
-		(crc) = pg_crc32_table[__tab_index] ^ ((crc) << 8); \
-	} \
-} while (0)
+#define SizeOfXLogRecordBlockHeader (offsetof(XLogRecordBlockHeader, data_length) + sizeof(uint16))
 
-extern const uint32 pg_crc32_table[];
+#define BKPBLOCK_FORK_MASK	0x0F
+#define BKPBLOCK_FLAG_MASK	0xF0
+#define BKPBLOCK_HAS_IMAGE	0x10	/* block data is an XLogRecordBlockImage */
+#define BKPBLOCK_HAS_DATA	0x20
+#define BKPBLOCK_WILL_INIT	0x40	/* redo will re-init the page */
+#define BKPBLOCK_SAME_REL	0x80	/* RelFileNode omitted, same as previous */
 
-/* TODO: move to xffilter.c */
-#define REC_HEADER_LEN 32
+#define SizeOfXLogRecordDataHeaderLong (sizeof(uint8) + sizeof(uint32))
 
+typedef struct XLogRecordBlockImageHeader
+{
+	uint16		length;			/* number of page image bytes */
+	uint16		hole_offset;	/* number of bytes before "hole" */
+	uint8		bimg_info;		/* flag bits, see below */
 
+	/*
+	 * If BKPIMAGE_HAS_HOLE and BKPIMAGE_IS_COMPRESSED, an
+	 * XLogRecordBlockCompressHeader struct follows.
+	 */
+} XLogRecordBlockImageHeader;
+
+#define SizeOfXLogRecordBlockImageHeader	\
+	(offsetof(XLogRecordBlockImageHeader, bimg_info) + sizeof(uint8))
+
+/* Information stored in bimg_info */
+#define BKPIMAGE_HAS_HOLE		0x01	/* page image has "hole" */
+#define BKPIMAGE_IS_COMPRESSED		0x02		/* page image is compressed */
+
+/*
+ * Extra header information used when page image has "hole" and
+ * is compressed.
+ */
+typedef struct XLogRecordBlockCompressHeader
+{
+	uint16		hole_length;	/* number of bytes in "hole" */
+} XLogRecordBlockCompressHeader;
+
+#define SizeOfXLogRecordBlockCompressHeader \
+	sizeof(XLogRecordBlockCompressHeader)
+
+#define XLR_BLOCK_ID_DATA_SHORT		255
+#define XLR_BLOCK_ID_DATA_LONG		254
+#define XLR_BLOCK_ID_ORIGIN			253
 
 #endif   /* XF_PGTYPES_H */

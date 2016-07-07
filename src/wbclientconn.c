@@ -1113,7 +1113,7 @@ WbCCSendWalBlock(WbConn conn, ReplMessage *msg, FilterData *fl)
 	}
 
 	//'d' 'w' l(dataStart) l(walEnd) l(sendTime) s[WALdata]
-	if (fl->state == FS_BUFFER_RECORD || fl->state == FS_BUFFER_FILENODE)
+	if (fl->state & FS_BUFFERING_STATE)
 	{
 		// Chomp the buffered data off of what we send
 		buffered = fl->bufferLen;

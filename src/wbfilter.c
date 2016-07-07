@@ -4,6 +4,7 @@
 
 #include "wbpgtypes.h"
 #include "wbutils.h"
+#include "wbcrc32c.h"
 
 
 
@@ -14,11 +15,12 @@ static void ReplMessageCopy(FilterData *fl, ReplMessage *msg, int amount);
 static void ReplMessageZero(FilterData *fl, ReplMessage *msg, int amount);
 static void ReplMessageAlign(ReplMessage *msg);
 static int ReplDataRemainingInSegment(ReplMessage *msg);
-static pg_crc32 CalculateCRC32(char *buffer, int len, int total_len);
 static void WriteNoopRecord(FilterData *fl, ReplMessage *msg);
 static void FilterClearBuffer(FilterData *fl);
 static bool NeedToFilter(FilterData *fl, RelFileNode *node);
 static void FilterBufferRecordHeader(FilterData* fl, ReplMessage* msg);
+static pg_crc32c CalculateCRC32(char *buffer, int len, int total_len);
+static void InjectDummyDataHeaderLongAfterRecordHeader(XLogRecord *rec);
 
 FilterData*
 WbFCreateProcessingState(XLogRecPtr startPoint)
@@ -99,6 +101,10 @@ WbFProcessWalDataBlock(ReplMessage* msg, FilterData* fl, XLogRecPtr *retryPos)
 				// fall through to buffering
 				/* no break */
 			case FS_BUFFER_RECORD:
+			case FS_BUFFER_BLOCK_ID:
+			case FS_BUFFER_BLOCK_HEADER:
+			case FS_BUFFER_IMAGE_HEADER:
+			case FS_BUFFER_COMPRESSION_HEADER:
 			case FS_BUFFER_FILENODE:
 			case FS_COPY_NORMAL:
 			case FS_COPY_ZERO:
@@ -154,51 +160,126 @@ WbFProcessWalDataBlock(ReplMessage* msg, FilterData* fl, XLogRecPtr *retryPos)
 					}
 
 					fl->recordRemaining = rec->xl_tot_len - REC_HEADER_LEN;
-					switch (rec->xl_rmid)
+
+					if (rec->xl_rmid == RM_XLOG_ID && (rec->xl_info & 0xF0) == XLOG_SWITCH)
 					{
-						case RM_SMGR_ID:
-						case RM_HEAP_ID:
-						case RM_HEAP2_ID:
-						case RM_BTREE_ID:
-						case RM_GIN_ID:
-						case RM_GIST_ID:
-						case RM_SEQ_ID:
-						case RM_SPGIST_ID:
-							fl->state = FS_BUFFER_FILENODE;
-							fl->dataNeeded = sizeof(RelFileNode);
-							parse_debug(" - Data record, buffering %d bytes for filenode", fl->dataNeeded);
-							break;
-						case RM_XLOG_ID:
-							{
-								uint8 info = rec->xl_info & 0xF0;
-								if (info == XLOG_SWITCH)
-								{
-									// Stream out data until end of buffer
-									fl->state = FS_COPY_SWITCH;
-									fl->dataNeeded = ReplDataRemainingInSegment(msg);
-									FilterClearBuffer(fl);
-									parse_debug(" - Xlog switch, copying %d bytes ", fl->dataNeeded);
-								}
-								else if (info == XLOG_FPI)
-								{
-									fl->state = FS_BUFFER_FILENODE;
-									fl->dataNeeded = sizeof(RelFileNode);
-									parse_debug(" - FPI, buffering %d bytes for filenode", fl->dataNeeded);
-								} else {
-									fl->state = FS_COPY_NORMAL;
-									fl->dataNeeded = fl->recordRemaining;
-									FilterClearBuffer(fl);
-									parse_debug(" - Other XLOG record, copying %d bytes ", fl->dataNeeded);
-								}
-							}
-							break;
-						default:
-							// No need for filtering
-							fl->state = FS_COPY_NORMAL;
-							fl->dataNeeded = fl->recordRemaining;
-							FilterClearBuffer(fl);
-							parse_debug(" - Other record, copying %d bytes ", fl->dataNeeded);
+						// Stream out data until end of buffer
+						fl->state = FS_COPY_SWITCH;
+						fl->dataNeeded = ReplDataRemainingInSegment(msg);
+						FilterClearBuffer(fl);
+						parse_debug(" - Xlog switch, copying %d bytes ", fl->dataNeeded);
+						break;
 					}
+					else if (fl->recordRemaining == 0)
+					{
+						fl->state = FS_COPY_NORMAL;
+						fl->dataNeeded = fl->recordRemaining;
+						FilterClearBuffer(fl);
+						parse_debug(" - Other record, copying %d bytes ", fl->dataNeeded);
+					}
+					else
+					{
+						fl->state = FS_BUFFER_BLOCK_ID;
+						fl->dataNeeded = 1;
+						parse_debug(" - Buffer block ID");
+					}
+				}
+				break;
+			case FS_BUFFER_BLOCK_ID:
+				if (fl->dataNeeded <= amountAvailable)
+					ReplMessageBuffer(fl, msg, fl->dataNeeded);
+				else
+					ReplMessageBuffer(fl, msg, amountAvailable);
+				if (!fl->dataNeeded)
+				{
+					uint8 block_id = *((uint8*) (fl->buffer + REC_HEADER_LEN));
+
+					fl->recordRemaining -= 1;
+
+					if (block_id > XLR_MAX_BLOCK_ID)
+					{
+						fl->state = FS_COPY_NORMAL;
+						fl->dataNeeded = fl->recordRemaining;
+						FilterClearBuffer(fl);
+						parse_debug(" - No block references in record, copying %d bytes ", fl->dataNeeded);
+					}
+					else
+					{
+						fl->state = FS_BUFFER_BLOCK_HEADER;
+						fl->dataNeeded = SizeOfXLogRecordBlockHeader - 1;
+						parse_debug(" - Buffer block reference header");
+					}
+				}
+				break;
+			case FS_BUFFER_BLOCK_HEADER:
+				if (fl->dataNeeded <= amountAvailable)
+					ReplMessageBuffer(fl, msg, fl->dataNeeded);
+				else
+					ReplMessageBuffer(fl, msg, amountAvailable);
+				if (!fl->dataNeeded)
+				{
+					XLogRecordBlockHeader *block = (XLogRecordBlockHeader*) (fl->buffer + REC_HEADER_LEN);
+
+					fl->recordRemaining -= SizeOfXLogRecordBlockHeader - 1;
+
+					if (block->fork_flags & BKPBLOCK_SAME_REL)
+					{
+						log_error("First block reference has SAME_REL set");
+						exit(1);
+					}
+
+					if (block->fork_flags & BKPBLOCK_HAS_IMAGE)
+					{
+						fl->state = FS_BUFFER_IMAGE_HEADER;
+						fl->dataNeeded = SizeOfXLogRecordBlockImageHeader;
+						parse_debug(" - Block header has image header, buffering %d", fl->dataNeeded);
+					}
+					else
+					{
+						fl->state = FS_BUFFER_FILENODE;
+						fl->dataNeeded = sizeof(RelFileNode);
+						parse_debug(" - Block reference, buffering %d bytes for filenode", fl->dataNeeded);
+					}
+
+				}
+				break;
+			case FS_BUFFER_IMAGE_HEADER:
+				if (fl->dataNeeded <= amountAvailable)
+					ReplMessageBuffer(fl, msg, fl->dataNeeded);
+				else
+					ReplMessageBuffer(fl, msg, amountAvailable);
+				if (!fl->dataNeeded)
+				{
+					XLogRecordBlockImageHeader *imghdr = (XLogRecordBlockImageHeader*) (fl->buffer + fl->bufferLen - SizeOfXLogRecordBlockImageHeader);
+					bool has_compr_header = (imghdr->bimg_info & BKPIMAGE_HAS_HOLE) && (imghdr->bimg_info & BKPIMAGE_IS_COMPRESSED);
+
+					fl->recordRemaining -= SizeOfXLogRecordBlockImageHeader;
+
+					if (has_compr_header)
+					{
+						fl->state = FS_BUFFER_COMPRESSION_HEADER;
+						fl->dataNeeded = SizeOfXLogRecordBlockCompressHeader;
+						parse_debug(" - FPI, buffering %d bytes for filenode", fl->dataNeeded);
+					}
+					else
+					{
+						fl->state = FS_BUFFER_FILENODE;
+						fl->dataNeeded = sizeof(RelFileNode);
+						parse_debug(" - Block reference, buffering %d bytes for filenode", fl->dataNeeded);
+					}
+				}
+				break;
+			case FS_BUFFER_COMPRESSION_HEADER:
+				if (fl->dataNeeded <= amountAvailable)
+					ReplMessageBuffer(fl, msg, fl->dataNeeded);
+				else
+					ReplMessageBuffer(fl, msg, amountAvailable);
+				if (!fl->dataNeeded)
+				{
+					fl->recordRemaining -= SizeOfXLogRecordBlockCompressHeader;
+					fl->state = FS_BUFFER_FILENODE;
+					fl->dataNeeded = sizeof(RelFileNode);
+					parse_debug(" - Block reference, buffering %d bytes for filenode", fl->dataNeeded);
 				}
 				break;
 			case FS_BUFFER_FILENODE:
@@ -211,7 +292,7 @@ WbFProcessWalDataBlock(ReplMessage* msg, FilterData* fl, XLogRecPtr *retryPos)
 					parse_debug(" - Filenode buffered at %d", msg->dataPtr);
 					fl->recordRemaining -= sizeof(RelFileNode);
 					if (NeedToFilter(fl,
-							(RelFileNode*) (fl->buffer + REC_HEADER_LEN)))
+							(RelFileNode*) (fl->buffer + fl->bufferLen - sizeof(RelFileNode))))
 					{
 						WriteNoopRecord(fl, msg);
 						fl->state = FS_COPY_ZERO;
@@ -329,36 +410,40 @@ ReplDataRemainingInSegment(ReplMessage *msg)
 	return segEnd - curPos;
 }
 
-static pg_crc32
+static pg_crc32c
 CalculateCRC32(char *buffer, int len, int total_len)
 {
-	pg_crc32 crc;
-	INIT_CRC32(crc);
-	COMP_CRC32_ZERO(crc, total_len - REC_HEADER_LEN);
-	COMP_CRC32(crc, buffer, offsetof(XLogRecord, xl_crc));
-	FIN_CRC32(crc);
-	return crc;
+    	pg_crc32c crc;
+    	INIT_CRC32C(crc);
+    	COMP_CRC32C(crc, buffer + SizeOfXLogRecord, len - SizeOfXLogRecord);
+    	COMP_CRC32C_ZERO(crc, buffer + len, total_len - len);
+    	COMP_CRC32C(crc, buffer, offsetof(XLogRecord, xl_crc));
+    	FIN_CRC32C(crc);
+    	return crc;
 }
 
 static void
 WriteNoopRecord(FilterData *fl, ReplMessage *msg)
 {
 	XLogRecord *rec = (XLogRecord*) fl->buffer;
-	RelFileNode *node = (RelFileNode*) (fl->buffer + sizeof(XLogRecord));
 
-	Assert(fl->bufferLen == REC_HEADER_LEN + sizeof(RelFileNode));
+	Assert(fl->bufferLen >= REC_HEADER_LEN + sizeof(RelFileNode));
 
 	// tot_len, xid stay the same
-	// len is the whole record, without any backup blocks
-	rec->xl_len = rec->xl_tot_len - REC_HEADER_LEN;
 	rec->xl_info = XLOG_NOOP;
 	rec->xl_rmid = RM_XLOG_ID;
-	// xl_prev stays the same
-	rec->xl_crc = 0;
-	node->dbNode = 0;
-	node->relNode = 0;
-	node ->spcNode = 0;
-	rec->xl_crc = CalculateCRC32(fl->buffer, fl->bufferLen, rec->xl_tot_len);
+
+
+    // zero everything between XLogRecord + DataHeaderLong and bufferLen as we don't need it anymore
+    for (int i = REC_HEADER_LEN + SizeOfXLogRecordDataHeaderLong; i < fl->bufferLen; i++)
+		*(fl->buffer + i) = 0;
+
+	InjectDummyDataHeaderLongAfterRecordHeader(rec);
+
+	rec->xl_crc = CalculateCRC32(fl->buffer, REC_HEADER_LEN + SizeOfXLogRecordDataHeaderLong, rec->xl_tot_len);
+
+    parse_debug(" - Writing NOOP record with %d bytes at %X/%X, xl_crc = 0x%X",
+                rec->xl_tot_len, (uint32) ((msg->dataStart + fl->recordStart) >> 32), (uint32) (msg->dataStart + fl->recordStart), rec->xl_crc);
 
 	{
 		// We scribble over data in the message buffer
@@ -417,6 +502,7 @@ OidInZeroTermOidList(Oid search, Oid *list)
 static bool
 NeedToFilter(FilterData *fl, RelFileNode *node)
 {
+    log_debug2("Checking relfilnode with dbNode %d, spcNode %d", node->dbNode, node->spcNode);
 	if (fl->include_tablespaces)
 		if (!OidInZeroTermOidList(node->spcNode, fl->include_tablespaces))
 		{
@@ -458,4 +544,12 @@ FilterBufferRecordHeader(FilterData* fl, ReplMessage* msg)
 	fl->headerPos = -1;
 	fl->headerLen = 0;
 	fl->bufferLen = 0;
+}
+
+static void
+InjectDummyDataHeaderLongAfterRecordHeader(XLogRecord* rec)
+{
+    char *buffer = (char*)rec;
+    *((uint8*)(buffer + REC_HEADER_LEN)) = (uint8)XLR_BLOCK_ID_DATA_LONG;
+    *((uint32*)(buffer + REC_HEADER_LEN + 1)) = (uint32)(rec->xl_tot_len - REC_HEADER_LEN - SizeOfXLogRecordDataHeaderLong);
 }

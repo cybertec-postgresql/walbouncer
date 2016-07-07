@@ -1,8 +1,8 @@
 all: walbouncer
 
-# Check for PostgrSQL 9.4
-ifeq ($(shell pg_config --version | grep "PostgreSQL 9.4"),)
-	$(error PostgreSQL version 9.4 required, pg_config provides $(shell pg_config --version))
+# Check for PostgrSQL 9.5
+ifeq ($(shell pg_config --version | grep "PostgreSQL 9.5"),)
+    $(error PostgreSQL version 9.5 required, pg_config provides $(shell pg_config --version))
 endif
 
 CFLAGS=-O2 -Wall -Werror -g
@@ -11,7 +11,7 @@ pglibdir = $(shell pg_config --libdir)
 pgincludedir = $(shell pg_config --includedir)
 pgbindir = $(shell pg_config --bindir)
 
-objects = main.o wbsocket.o wbutils.o parser/repl_gram.o parser/scansup.o parser/stringinfo.o parser/gram_support.o pg_crc.o wbmasterconn.o wbfilter.o wbclientconn.o wbsignals.o wbconfig.o  
+objects = main.o wbsocket.o wbutils.o parser/repl_gram.o parser/scansup.o parser/stringinfo.o parser/gram_support.o wbcrc32c.o wbmasterconn.o wbfilter.o wbclientconn.o wbsignals.o wbconfig.o
 
 walbouncer: $(objects)
 	gcc $(CFLAGS) -o walbouncer $(objects) -I -L$(pglibdir) -lpq -lyaml
