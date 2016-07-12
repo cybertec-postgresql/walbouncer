@@ -5,7 +5,7 @@ ifeq ($(shell pg_config --version | grep "PostgreSQL 9.5"),)
     $(error PostgreSQL version 9.5 required, pg_config provides $(shell pg_config --version))
 endif
 
-CFLAGS=-O2 -Wall -Werror -g
+CFLAGS=-O2 -Wall -Werror -g -std=gnu99
 
 pglibdir = $(shell pg_config --libdir)
 pgincludedir = $(shell pg_config --includedir)
