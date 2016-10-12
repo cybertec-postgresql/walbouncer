@@ -70,7 +70,7 @@ WbFProcessWalDataBlock(ReplMessage* msg, FilterData* fl, XLogRecPtr *retryPos)
 
 			XLogPageHeader header = (XLogPageHeader) ReplMessageConsume(msg,
 					SizeOfXLogShortPHD);
-			if (header->xlp_magic != XLOG_PAGE_MAGIC)
+            if (header->xlp_magic < XLOG_PAGE_MAGIC_MIN || header->xlp_magic > XLOG_PAGE_MAGIC_MAX)
 				error("Received page with invalid page magic");
 
 			if (header->xlp_info & XLP_LONG_HEADER)

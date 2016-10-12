@@ -54,7 +54,9 @@ setup_master()
         log_disconnections = on
         log_line_prefix = '[%m] %u %d '
         # log_min_messages = debug2
-	hot_standby_feedback = on
+		hot_standby_feedback = on
+		fsync = off
+		unix_socket_directories='/tmp'
 EOF
     ) > "$MASTER_DATA/postgresql.conf"
     (cat <<EOF
@@ -160,6 +162,23 @@ check_replication()
     du -sh $WD/tablespaces/slave1/slave2
 }
 
+check_different_rmgrs()
+{
+    msg "Creating test data for different rmgr-s in rmgr_test1"
+	master_sql "create table rmgr_test1 (c1 int, c2 text)"
+	master_sql "create index on rmgr_test1 using brin (c1)"
+	master_sql "create index on rmgr_test1 using gin (to_tsvector('english', c2));"
+	master_sql "create extension btree_gin"
+	master_sql "create index on rmgr_test1 using gin (c1)"
+	master_sql "create extension btree_gist"
+	master_sql "create index on rmgr_test1 using gist (c1)"
+	master_sql "insert into rmgr_test1 select 1, 'hello'"
+	sleep 1
+	msg "Slave1 data in rmgr_test1"
+	slave1_sql "SELECT * FROM rmgr_test1"
+	slave1_sql "\d rmgr_test1"
+}
+
 increment_master_timeline()
 {
     msg "Incrementing master timeline"
@@ -194,6 +213,8 @@ start_slave slave1
 create_test_tables
 
 check_replication
+
+#check_different_rmgrs
 
 msg "Master is running on port 5432, slave1 on 5434."
 msg "walbouncer.log contains heaps of debug info."
