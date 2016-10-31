@@ -708,11 +708,11 @@ WbCCExecStartPhysical(WbConn conn, MasterConn *master, ReplicationCommand *cmd)
 
 	WbCCLookupFilteringOids(conn, fl);
 
+	WbCCSendCopyBothResponse(conn);
+
 	startReceivingFrom = cmd->startpoint;
 again:
 	WbMcStartStreaming(master, startReceivingFrom, cmd->timeline);
-
-	WbCCSendCopyBothResponse(conn);
 
 	while (!endofwal)
 	{
