@@ -115,8 +115,10 @@ WbMcEndStreaming(MasterConn *master, TimeLineID *nextTli, char** nextTliStart)
 		 */
 		if (PQnfields(res) < 2 || PQntuples(res) != 1)
 			error("unexpected result set after end-of-streaming");
-		*nextTli = ensure_atoi(PQgetvalue(res, 0, 0));
-		*nextTliStart = wbstrdup(PQgetvalue(res, 0, 1));
+		if (nextTli)
+			*nextTli = ensure_atoi(PQgetvalue(res, 0, 0));
+		if (nextTliStart)
+			*nextTliStart = wbstrdup(PQgetvalue(res, 0, 1));
 		log_info("Ended streaming with master, received next TLI %u, start pos %s", *nextTli, *nextTliStart);
 
 		PQclear(res);
@@ -127,8 +129,10 @@ WbMcEndStreaming(MasterConn *master, TimeLineID *nextTli, char** nextTliStart)
 	else
 	{
 		log_info("Ended streaming with master, no historic TLI information received");
-		*nextTli = 0;
-		*nextTliStart = NULL;
+		if (nextTli)
+			*nextTli = 0;
+		if (nextTliStart)
+			*nextTliStart = NULL;
 	}
 
 	if (PQresultStatus(res) != PGRES_COMMAND_OK)
