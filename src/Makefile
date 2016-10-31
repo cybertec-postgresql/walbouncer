@@ -14,7 +14,7 @@ pgbindir = $(shell pg_config --bindir)
 objects = main.o wbsocket.o wbutils.o parser/repl_gram.o parser/scansup.o parser/stringinfo.o parser/gram_support.o wbcrc32c.o wbmasterconn.o wbfilter.o wbclientconn.o wbsignals.o wbconfig.o
 
 walbouncer: $(objects)
-	gcc $(CFLAGS) -o walbouncer $(objects) -I -L$(pglibdir) -lpq -lyaml
+	gcc $(CFLAGS) -o walbouncer $(objects) -L$(pglibdir)/ -lpq -lyaml
 
  $(objects): %.o: %.c include/*.h
 	gcc $(CFLAGS) -I$(pgincludedir) -Iinclude -c $< -o $@
