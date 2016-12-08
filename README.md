@@ -117,9 +117,36 @@ configurations:
             include_tablespaces: [spc_slave2]
 ```
 
+Additional Information
+======================
+
+PDF on general concepts [here](http://static.cybertec.at/wp-content/uploads/walbouncer.pdf)
+
+Blog posts on Walbouncer: [post1](http://www.cybertec.at/2014/10/walbouncer-filtering-transaction-log/), [post2](http://www.cybertec.at/2016/08/walbouncer-refreshed-a-proxy-for-selective-postgresql-physical-replication/)
+
+
+Gotchas
+=======
+
+Adding/renaming databases
+-------------------------
+
+List of databases used for filtering (OID-s are fetched from master on client connect) is only read on Walbouncer startup so to make sure the new/renamed
+database will be filtered out on the replica, you need to stop the replica and the Walbouncer, adjust the Walbouncer config, issue the CREATE/RENAME
+command, start Walbouncer and the replica. See above PDF for more details.
+
+Dropping databases
+------------------
+
+Have all slaves that want to filter out the dropped database actively streaming before you execute the drop. 
+Otherwise the slaves will not know to skip the drop record and xlog replay will fail with an error.
+
+
 Potential future features
 =========================
 
 - Also provide filtering for pg_basebackup.
 - Provide quorum for synchronous replication. (k of n servers have the data)
 - Create a protocol to use multicast to stream data.
+
+Pull requests and any other input are very welcome!
