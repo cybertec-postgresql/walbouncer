@@ -254,6 +254,11 @@ typedef struct XLogRecord
 #define XLOG_SWITCH 0x40
 #define XLOG_FPI 0xA0
 
+#define XLOG_SMGR_CREATE	0x10
+#define XLOG_SMGR_TRUNCATE	0x20
+
+#define XLOG_SEQ_LOG			0x00
+
 #define REC_HEADER_LEN 24
 
 #define XLR_MAX_BLOCK_ID			32

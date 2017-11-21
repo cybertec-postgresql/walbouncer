@@ -170,6 +170,29 @@ WbFProcessWalDataBlock(ReplMessage* msg, FilterData* fl, XLogRecPtr *retryPos)
 						parse_debug(" - Xlog switch, copying %d bytes ", fl->dataNeeded);
 						break;
 					}
+					else if (rec->xl_rmid == RM_SMGR_ID && (rec->xl_info & 0xF0) == XLOG_SMGR_CREATE)
+					{
+						fl->state = FS_BUFFER_FILENODE;
+						fl->dataNeeded = sizeof(RelFileNode);
+						parse_debug(" - SMGR record, buffering %d bytes for filenode", fl->dataNeeded);
+						break;
+					}
+					else if (rec->xl_rmid == RM_SMGR_ID && (rec->xl_info & 0xF0) == XLOG_SMGR_TRUNCATE)
+					{
+						fl->state = FS_BUFFER_FILENODE;
+						// Here we rely on the fact that FS_BUFFER_FILENODE will ignore any extra data
+						fl->recordRemaining -= sizeof(BlockNumber);
+						fl->dataNeeded = sizeof(BlockNumber) + sizeof(RelFileNode);
+						parse_debug(" - SMGR record, buffering %d bytes for filenode", fl->dataNeeded);
+						break;
+					}
+					else if (rec->xl_rmid == RM_SEQ_ID && (rec->xl_info & 0xF0) == XLOG_SEQ_LOG)
+					{
+						fl->state = FS_BUFFER_FILENODE;
+						fl->dataNeeded = sizeof(RelFileNode);
+						parse_debug(" - SMGR record, buffering %d bytes for filenode", fl->dataNeeded);
+						break;
+					}
 					else if (fl->recordRemaining == 0)
 					{
 						fl->state = FS_COPY_NORMAL;
