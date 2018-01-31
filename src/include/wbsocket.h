@@ -21,7 +21,9 @@ typedef struct {
 typedef struct {
 	TimestampTz sendTime;
 	TransactionId xmin;
-	uint32		epoch;
+	uint32		xmin_epoch;
+	uint32		catalog_xmin;
+	uint32		catalog_xmin_epoch;
 } HSFeedbackMessage;
 
 typedef struct {

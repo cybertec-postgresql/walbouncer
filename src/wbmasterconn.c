@@ -303,18 +303,24 @@ WbMcSendReply(MasterConn *master, StandbyReplyMessage *reply, bool force, bool r
 void
 WbMcSendFeedback(MasterConn *master, HSFeedbackMessage *feedback)
 {
-	char feedback_message[1+8+4+4];
+	char feedback_message[1+8+4+4
+	#if PG_VERSION >= 100000
+		+4+4
+	#endif
+	];
 
 	memset(feedback_message, 0, sizeof(feedback_message));
 
 	feedback_message[0] = 'h';
 	write64(&(feedback_message[1]), feedback->sendTime);
 	write32(&(feedback_message[9]), feedback->xmin);
-	write32(&(feedback_message[13]), feedback->epoch);
+	write32(&(feedback_message[13]), feedback->xmin_epoch);
+	write32(&(feedback_message[17]), feedback->catalog_xmin);
+	write32(&(feedback_message[21]), feedback->catalog_xmin_epoch);
 
 	log_debug1("Send HS feedback to master: xmin %d epoch %d sendtime %s",
 			feedback->xmin,
-			feedback->epoch,
+			feedback->xmin_epoch,
 			timestamptz_to_str(feedback->sendTime));
 
 	WbMcSend(master, feedback_message, sizeof(feedback_message));

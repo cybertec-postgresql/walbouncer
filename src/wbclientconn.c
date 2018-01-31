@@ -1060,11 +1060,15 @@ WbCCProcessStandbyHSFeedbackMessage(WbConn conn, WbMessage *msg)
 	 */
 	feedback->sendTime = fromnetwork64(msg->data + 1);		/* sendTime; not used ATM */
 	feedback->xmin = fromnetwork32(msg->data + 9);
-	feedback->epoch = fromnetwork32(msg->data + 13);
+	feedback->xmin_epoch = fromnetwork32(msg->data + 13);
+	#if PG_VERSION >= 100000
+	feedback->catalog_xmin = fromnetwork32(msg->data + 17);
+	feedback->catalog_xmin_epoch = fromnetwork32(msg->data + 21);
+	#endif
 
 	log_debug1("hot standby feedback xmin %u epoch %u sendTime %s",
 		 feedback->xmin,
-		 feedback->epoch,
+		 feedback->xmin_epoch,
 		 timestamptz_to_str(feedback->sendTime));
 
 	conn->feedbackForwarded = false;
