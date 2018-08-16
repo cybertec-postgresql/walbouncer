@@ -477,6 +477,7 @@ WriteNoopRecord(FilterData *fl, ReplMessage *msg)
 		int copied = 0;
 		int amount;
 		int toCopy = fl->bufferLen;
+		bool	skip_header = false;
 
 		if (targetpos == -1)
 		{
@@ -487,8 +488,22 @@ WriteNoopRecord(FilterData *fl, ReplMessage *msg)
 			toCopy -= amount;
 			targetpos = 0;
 		}
-		// Copy up to next pageheader or to end of buffer
-		amount = fl->headerPos >= 0 ? fl->headerPos - targetpos: toCopy;
+		/*
+		 * Copy up to next page header or to end of buffer.
+		 *
+		 * The last page header seen can actually be in front of the current
+		 * record, if the current message starts exactly at page boundary or
+		 * in padding bytes that terminate the previous page so that the page
+		 * header does not have XLP_FIRST_IS_CONTRECORD set. In such a case we
+		 * don't care about the page header.
+		 */
+		if (fl->headerPos >= 0 && fl->headerPos > targetpos)
+			skip_header = true;
+
+		if (skip_header)
+			amount = fl->headerPos - targetpos;
+		else
+			amount = toCopy;
 		memcpy(msg->data + targetpos, fl->buffer + copied, amount);
 
 		// Skip over page header in the target buffer
@@ -498,7 +513,9 @@ WriteNoopRecord(FilterData *fl, ReplMessage *msg)
 		if (!toCopy)
 			return;
 
-		targetpos += amount + fl->headerLen;
+		targetpos += amount;
+		if (skip_header)
+			targetpos += fl->headerLen;
 
 		// Copy the rest if any
 		amount = toCopy;
