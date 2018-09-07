@@ -78,6 +78,13 @@ WbFProcessWalDataBlock(ReplMessage* msg, FilterData* fl, XLogRecPtr *retryPos)
 
 			msg->nextPageBoundary += XLOG_BLCKSZ;
 
+			/*
+			 * Adjust recordStart so it does not point to the beginning of the
+			 * page.
+			 */
+			if (fl->recordStart == headerPos)
+				fl->recordStart = msg->dataPtr;
+
 			switch (fl->state)
 			{
 			case FS_SYNCHRONIZING:
