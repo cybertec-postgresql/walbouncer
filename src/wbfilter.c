@@ -493,7 +493,15 @@ WriteNoopRecord(FilterData *fl, ReplMessage *msg)
 			memcpy(fl->unsentBuffer, fl->buffer + copied, amount);
 			copied += amount;
 			toCopy -= amount;
-			targetpos = 0;
+
+			/*
+			 * In the corner case of msg->data starting with page header make
+			 * sure that we do not overwrite the header.
+			 */
+			if (fl->headerPos == 0)
+				targetpos = fl->headerLen;
+			else
+				targetpos = 0;
 		}
 		/*
 		 * Copy up to next page header or to end of buffer.
