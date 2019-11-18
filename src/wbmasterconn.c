@@ -387,6 +387,34 @@ WbMcGetTimelineHistory(MasterConn* master, TimeLineID timeline,
 	return true;
 }
 
+char *
+WbMcShowVariable(MasterConn* master, char *varname)
+{
+	PGconn *mc = master->conn;
+	char query[1024];
+	PGresult *result;
+	char	*value;
+
+	snprintf(query, 1024, "SHOW %s", varname);
+
+	result = PQexec(mc, query);
+
+	if (PQresultStatus(result) != PGRES_TUPLES_OK)
+	{
+		log_debug1("Variable returned %s", PQresStatus(PQresultStatus(result)));
+		PQclear(result);
+		error("Getting variable from master failed with: %s", PQerrorMessage(mc));
+	}
+	if (PQntuples(result) != 1)
+	{
+		error("Invalid response for SHOW command: %d tuples", PQnfields(result));
+	}
+
+	value = wbstrdup(PQgetvalue(result, 0, 0));
+    PQclear(result);
+	return value;
+}
+
 Oid *
 WbMcResolveOids(MasterConn *master, OidResolveKind kind, bool include, char** names, int n_items)
 {

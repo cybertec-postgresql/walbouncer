@@ -40,6 +40,7 @@ static void WbCCExecIdentifySystem(WbConn conn, MasterConn *master);
 static bool WbCCWaitForData(WbConn conn, MasterConn *master);
 static void WbCCExecStartPhysical(WbConn conn, MasterConn *master, ReplicationCommand *cmd);
 static void WbCCExecTimeline(WbConn conn, MasterConn *master, ReplicationCommand *cmd);
+static void WbCCExecShow(WbConn conn, MasterConn *master, ReplicationCommand *cmd);
 static void WbCCLookupFilteringOids(WbConn conn, FilterData *fl);
 //static void WbCCSendWALRecord(XfConn conn, char *data, int len, XLogRecPtr sentPtr, TimestampTz lastSend);
 //static void WbCCSendEndOfWal(XfConn conn);
@@ -527,6 +528,9 @@ WbCCExecCommand(WbConn conn, MasterConn *master, char *query_string)
 		case REPL_TIMELINE:
 			WbCCExecTimeline(conn, master, cmd);
 			break;
+		case REPL_SHOW_VAR:
+			WbCCExecShow(conn, master, cmd);
+			break;
 	}
 
 
@@ -812,6 +816,27 @@ WbCCExecTimeline(WbConn conn, MasterConn *master, ReplicationCommand *cmd)
 
 	wbfree(history.filename);
 	wbfree(history.content);
+}
+
+static void
+WbCCExecShow(WbConn conn, MasterConn *master, ReplicationCommand *cmd)
+{
+	char	*value;
+
+	log_info("Received request for variable %s", cmd->varname);
+
+	value = WbMcShowVariable(master, cmd->varname);
+
+	{
+		ResultCol cols[1] = {
+				{ cmd->varname, TEXTOID, value, 0}
+		};
+		WbCCSendResultset(conn, 1, cols);
+	}
+
+	log_info("Sent out variable value %s", value);
+
+	wbfree(value);
 }
 
 static void

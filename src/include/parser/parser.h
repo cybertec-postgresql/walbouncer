@@ -11,12 +11,14 @@ typedef enum {
 	REPL_DROP_SLOT,
 	REPL_START_PHYSICAL,
 	REPL_START_LOGICAL,
-	REPL_TIMELINE
+	REPL_TIMELINE,
+	REPL_SHOW_VAR
 } ReplCommandType;
 
 typedef struct ReplicationCommand {
 	ReplCommandType command;
 	char *slotname;
+	char *varname;
 	TimeLineID timeline;
 	XLogRecPtr startpoint;
 } ReplicationCommand;
