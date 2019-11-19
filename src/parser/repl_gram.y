@@ -21,6 +21,8 @@
 #include "replication/walsender.h"
 #include "replication/walsender_private.h"
 */
+
+#include <string.h>
 #include "wbutils.h"
 #include "parser/parser.h"
 
