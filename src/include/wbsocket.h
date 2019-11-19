@@ -1,6 +1,8 @@
 #ifndef	_WB_SOCKET_H
 #define _WB_SOCKET_H 1
 
+#include <sys/socket.h>
+
 #include "wbglobals.h"
 #include "wbproto.h"
 #include "wbconfig.h"
