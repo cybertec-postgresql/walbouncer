@@ -177,29 +177,6 @@ WbFProcessWalDataBlock(ReplMessage* msg, FilterData* fl, XLogRecPtr *retryPos)
 						parse_debug(" - Xlog switch, copying %d bytes ", fl->dataNeeded);
 						break;
 					}
-					else if (rec->xl_rmid == RM_SMGR_ID && (rec->xl_info & 0xF0) == XLOG_SMGR_CREATE)
-					{
-						fl->state = FS_BUFFER_FILENODE;
-						fl->dataNeeded = sizeof(RelFileNode);
-						parse_debug(" - SMGR record, buffering %d bytes for filenode", fl->dataNeeded);
-						break;
-					}
-					else if (rec->xl_rmid == RM_SMGR_ID && (rec->xl_info & 0xF0) == XLOG_SMGR_TRUNCATE)
-					{
-						fl->state = FS_BUFFER_FILENODE;
-						// Here we rely on the fact that FS_BUFFER_FILENODE will ignore any extra data
-						fl->recordRemaining -= sizeof(BlockNumber);
-						fl->dataNeeded = sizeof(BlockNumber) + sizeof(RelFileNode);
-						parse_debug(" - SMGR record, buffering %d bytes for filenode", fl->dataNeeded);
-						break;
-					}
-					else if (rec->xl_rmid == RM_SEQ_ID && (rec->xl_info & 0xF0) == XLOG_SEQ_LOG)
-					{
-						fl->state = FS_BUFFER_FILENODE;
-						fl->dataNeeded = sizeof(RelFileNode);
-						parse_debug(" - SMGR record, buffering %d bytes for filenode", fl->dataNeeded);
-						break;
-					}
 					else if (fl->recordRemaining == 0)
 					{
 						fl->state = FS_COPY_NORMAL;
@@ -228,10 +205,79 @@ WbFProcessWalDataBlock(ReplMessage* msg, FilterData* fl, XLogRecPtr *retryPos)
 
 					if (block_id > XLR_MAX_BLOCK_ID)
 					{
-						fl->state = FS_COPY_NORMAL;
-						fl->dataNeeded = fl->recordRemaining;
-						FilterClearBuffer(fl);
-						parse_debug(" - No block references in record, copying %d bytes ", fl->dataNeeded);
+						XLogRecord *rec = (XLogRecord*) fl->buffer;
+
+						if (rec->xl_rmid == RM_SMGR_ID &&
+							(rec->xl_info & 0xF0) == XLOG_SMGR_CREATE)
+						{
+							/* SMGR record should not be longer than 255 bytes. */
+							Assert(block_id == XLR_BLOCK_ID_DATA_SHORT);
+
+							fl->state = FS_BUFFER_FILENODE;
+							/* Include the data length info. */
+							fl->dataNeeded = sizeof(uint8) + sizeof(RelFileNode);
+							fl->recordRemaining -= sizeof(uint8);
+							parse_debug(" - SMGR record, buffering %d bytes for filenode",
+										fl->dataNeeded);
+							break;
+						}
+						else if (rec->xl_rmid == RM_SMGR_ID &&
+								 (rec->xl_info & 0xF0) == XLOG_SMGR_TRUNCATE)
+						{
+							/* SMGR record should not be longer than 255 bytes. */
+							Assert(block_id == XLR_BLOCK_ID_DATA_SHORT);
+
+							fl->state = FS_BUFFER_FILENODE;
+							// Here we rely on the fact that FS_BUFFER_FILENODE will ignore any extra data
+							/* Include the data length info. */
+							fl->dataNeeded = sizeof(uint8) + sizeof(BlockNumber) +
+								sizeof(RelFileNode);
+							fl->recordRemaining -= sizeof(uint8) + sizeof(BlockNumber);
+							parse_debug(" - SMGR record, buffering %d bytes for filenode",
+										fl->dataNeeded);
+							break;
+						}
+						/*
+						 * XXX The following seems to be dead code since PG
+						 * calls XLogRegisterBuffer() before it inserts the
+						 * XLOG_SEQ_LOG record. Thus the RelFileNode is
+						 * located after XLogRecordBlockHeader, so we can do
+						 * our filtering without checking the actual record.
+						 */
+						else if (rec->xl_rmid == RM_SEQ_ID &&
+								 (rec->xl_info & 0xF0) == XLOG_SEQ_LOG)
+						{
+							fl->state = FS_BUFFER_FILENODE;
+							fl->dataNeeded = sizeof(RelFileNode);
+
+							/*
+							 * Make sure we skip the whole "block id" and the
+							 * size info.
+							 */
+							if (block_id == XLR_BLOCK_ID_DATA_SHORT)
+							{
+								fl->dataNeeded += sizeof(uint8);
+								fl->recordRemaining -= sizeof(uint8);
+							}
+							else if (block_id == XLR_BLOCK_ID_DATA_LONG)
+							{
+								fl->dataNeeded += sizeof(uint32);
+								fl->recordRemaining -= sizeof(uint32);
+							}
+							else
+								Assert(false);
+
+							parse_debug(" - SMGR record, buffering %d bytes for filenode",
+										fl->dataNeeded);
+							break;
+						}
+						else
+						{
+							fl->state = FS_COPY_NORMAL;
+							fl->dataNeeded = fl->recordRemaining;
+							FilterClearBuffer(fl);
+							parse_debug(" - No block references in record, copying %d bytes ", fl->dataNeeded);
+						}
 					}
 					else
 					{
@@ -557,7 +603,8 @@ OidInZeroTermOidList(Oid search, Oid *list)
 static bool
 NeedToFilter(FilterData *fl, RelFileNode *node)
 {
-    log_debug2("Checking relfilnode with dbNode %d, spcNode %d", node->dbNode, node->spcNode);
+    log_debug2("Checking relfilnode [relNode, dbNode, spcNode] = [%u, %u, %u]",
+			   node->relNode, node->dbNode, node->spcNode);
 	if (fl->include_tablespaces)
 		if (!OidInZeroTermOidList(node->spcNode, fl->include_tablespaces))
 		{
