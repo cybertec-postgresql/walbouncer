@@ -70,13 +70,28 @@ WbFProcessWalDataBlock(ReplMessage* msg, FilterData* fl, XLogRecPtr *retryPos)
 
 			XLogPageHeader header = (XLogPageHeader) ReplMessageConsume(msg,
 					SizeOfXLogShortPHD);
+
+			msg->nextPageBoundary += XLOG_BLCKSZ;
+
+			/*
+			 * If we're copying the rest of the segment following XLOG switch,
+			 * we cannot examine the header because the switch record should
+			 * be followed only by zeroes. And in fact we do not need any
+			 * header info.
+			 */
+			if (fl->state == FS_COPY_SWITCH)
+			{
+				/* Subtract the amount already "consumed" above. */
+				fl->dataNeeded -= SizeOfXLogShortPHD;
+				/* Normal processing should continue now. */
+				continue;
+			}
+
             if (header->xlp_magic < XLOG_PAGE_MAGIC_MIN || header->xlp_magic > XLOG_PAGE_MAGIC_MAX)
 				error("Received page with invalid page magic");
 
 			if (header->xlp_info & XLP_LONG_HEADER)
 				ReplMessageConsume(msg, SizeOfXLogLongPHD - SizeOfXLogShortPHD);
-
-			msg->nextPageBoundary += XLOG_BLCKSZ;
 
 			/*
 			 * Adjust recordStart so it does not point to the beginning of the
