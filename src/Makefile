@@ -1,7 +1,7 @@
 all: walbouncer
 
 # Check for PostgrSQL 9.5 through 11
-ifeq ($(shell pg_config --version | grep -E "PostgreSQL 9.[56]|10|11"),)
+ifeq ($(shell pg_config --version | grep -E "PostgreSQL 9.[56]|10|11|12|13"),)
     $(error PostgreSQL version 9.5 through 11 required, pg_config provides $(shell pg_config --version))
 endif
 
