@@ -1,7 +1,7 @@
 all: walbouncer
 
 # Check for PostgrSQL 9.5 through 11
-ifeq ($(shell pg_config --version | grep -E "PostgreSQL 9.[56]|10|11|12|13"),)
+ifeq ($(shell pg_config --version | grep -E "PostgreSQL 9.[56]|10|11|12|13|14"),)
     $(error PostgreSQL version 9.5 through 11 required, pg_config provides $(shell pg_config --version))
 endif
 
@@ -26,7 +26,7 @@ parser/repl_scanner.c : parser/repl_scanner.l
 	flex -o $@ $<
 
 parser/repl_gram.c : parser/repl_gram.y parser/repl_scanner.c
-	bison -o $@ $<
+	bison -Wno-deprecated -o $@ $<
 
 test: all
 	cd ../tests; ./run_demo.sh
