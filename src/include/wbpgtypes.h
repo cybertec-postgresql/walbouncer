@@ -66,8 +66,8 @@ typedef struct BkpBlock
 /*
  * Each page of XLOG file has a header like this:
  */
-#define XLOG_PAGE_MAGIC_MIN 0xD087	/* in WB case it's OK to use a range of versions as we're only interested in fixing the RelFileNode location */
-#define XLOG_PAGE_MAGIC_MAX 0xD10E
+#define XLOG_PAGE_MAGIC_MIN 0xD110	/* in WB case it's OK to use a range of versions as we're only interested in fixing the RelFileNode location */
+#define XLOG_PAGE_MAGIC_MAX 0xD110
 
 typedef struct XLogPageHeaderData
 {
@@ -303,7 +303,16 @@ typedef struct XLogRecordBlockImageHeader
 
 /* Information stored in bimg_info */
 #define BKPIMAGE_HAS_HOLE		0x01	/* page image has "hole" */
-#define BKPIMAGE_IS_COMPRESSED		0x02		/* page image is compressed */
+#define BKPIMAGE_APPLY			0x02	/* page image should be restored
+						 * during replay */
+/* compression methods supported */
+#define BKPIMAGE_COMPRESS_PGLZ	0x04
+#define BKPIMAGE_COMPRESS_LZ4	0x08
+#define BKPIMAGE_COMPRESS_ZSTD	0x10
+
+#define	BKPIMAGE_COMPRESSED(info) \
+	((info & (BKPIMAGE_COMPRESS_PGLZ | BKPIMAGE_COMPRESS_LZ4 | \
+			  BKPIMAGE_COMPRESS_ZSTD)) != 0)
 
 /*
  * Extra header information used when page image has "hole" and

@@ -342,7 +342,8 @@ WbFProcessWalDataBlock(ReplMessage* msg, FilterData* fl, XLogRecPtr *retryPos)
 				if (!fl->dataNeeded)
 				{
 					XLogRecordBlockImageHeader *imghdr = (XLogRecordBlockImageHeader*) (fl->buffer + fl->bufferLen - SizeOfXLogRecordBlockImageHeader);
-					bool has_compr_header = (imghdr->bimg_info & BKPIMAGE_HAS_HOLE) && (imghdr->bimg_info & BKPIMAGE_IS_COMPRESSED);
+					bool has_compr_header = (imghdr->bimg_info & BKPIMAGE_HAS_HOLE) &&
+						BKPIMAGE_COMPRESSED(imghdr->bimg_info);
 
 					fl->recordRemaining -= SizeOfXLogRecordBlockImageHeader;
 
@@ -635,7 +636,8 @@ NeedToFilter(FilterData *fl, RelFileNode *node)
 		}
 
 	if (fl->include_databases)
-		if (!OidInZeroTermOidList(node->dbNode, fl->include_databases))
+		if (node->dbNode != 0 &&
+			!OidInZeroTermOidList(node->dbNode, fl->include_databases))
 		{
 			log_debug2("Data in database %d is not included", node->dbNode);
 			return true;
