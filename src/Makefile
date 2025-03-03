@@ -1,8 +1,8 @@
 all: walbouncer
 
-# Check for PostgrSQL 15
-ifeq ($(shell pg_config --version | grep -E "PostgreSQL 15"),)
-    $(error PostgreSQL version 9.5 through 11 required, pg_config provides $(shell pg_config --version))
+# Check for PostgrSQL 16
+ifeq ($(shell pg_config --version | grep -E "PostgreSQL 16"),)
+    $(error PostgreSQL version 9.5 through 16 required, pg_config provides $(shell pg_config --version))
 endif
 
 CFLAGS=-O2 -Wall -Werror -g -std=gnu99
