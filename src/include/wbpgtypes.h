@@ -66,8 +66,8 @@ typedef struct BkpBlock
 /*
  * Each page of XLOG file has a header like this:
  */
-#define XLOG_PAGE_MAGIC_MIN 0xD113	/* in WB case it's OK to use a range of versions as we're only interested in fixing the RelFileNode location */
-#define XLOG_PAGE_MAGIC_MAX 0xD113
+#define XLOG_PAGE_MAGIC_MIN 0xD116	/* in WB case it's OK to use a range of versions as we're only interested in fixing the RelFileNode location */
+#define XLOG_PAGE_MAGIC_MAX 0xD116
 
 typedef struct XLogPageHeaderData
 {
