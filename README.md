@@ -4,44 +4,44 @@ Introduction
 Walbouncer provides a proxy server for PostgreSQL replication connections. It
 also has the capability to replace a subset of WAL records will no-ops.
 
-Usecases where you would use walbouncer:
-    
-- For clusters with more than two slaves you can change a slave servers
+Use cases where you would use walbouncer:
+
+- For clusters with more than two replicas you can change a replica servers'
   effective `primary_conninfo` without restarting PostgreSQL by proxying
   it through walbouncer and changing walbouncer config when master server
   location changes.
-  
+
   In this setup you would usually place walbouncer on the same host as the
-  slave.
+  replica.
 
 - You can choose to replicate a subset of data to save space on geographically
   distributed databases. Use a separate tablespace per location and configure
   walbouncer to filter out irrelevant data from the WAL stream.
-  
+
   To also save on bandwidth use vtun to compress the stream.
 
 NB: filtering the WAL stream is by definition introducing data loss to your
-system. Slaves with filtered data are not usable after promotion to master.
+system. Replicas with filtered data are not usable after promotion to master.
 You may encounter errors about missing files that prevent you from using
 the database.
 
 Building and installing
 =======================
 
-To build walbouncer you need to have libyaml-dev and PostgreSQL 9.4 installed
+To build walbouncer you need to have libyaml-dev and PostgreSQL installed
 on your system. The correct PostgreSQL version is located using the pg_config
-binary. Ensure that pg_config for PostgreSQL 9.4 is in your path.
+binary. Ensure that pg_config for your PostgreSQL version is in your path.
 
 To build walbouncer change into the src/ directory and run:
 
     make
 
-Walbouncer is built as a selfcontained binary. It can be installed into your
+Walbouncer is built as a self-contained binary. It can be installed into your
 PostgreSQL binaries directory using:
 
     make install
 
-You can run a selftest procedure by running `make test`. Ensure that you have
+You can run a self-test procedure by running `make test`. Ensure that you have
 ports 5432..5434 free and don't have any necessary walbouncer running. The test
 run will leave two PostgreSQL instances and walbouncer running for further
 experimentation.
@@ -71,7 +71,7 @@ Configuration file
 The configuration file is encoded in YAML format. The following directives are
 used:
 
-```yaml    
+```yaml
 # The port that walbouncer will listen on.
 listen_port: 5433
 
@@ -90,7 +90,7 @@ configurations:
         # must match.
         match:
             # Check application_name of the client for an exact match.
-            application_name: slave1
+            application_name: replica1
             # Matches the IP address the client is connecting from. Can be a
             # specific IP or a hostmask
             source_ip: 192.168.0.0/16
@@ -100,10 +100,10 @@ configurations:
         filter:
             # If specified only tablespaces named in this list and default
             # tablespaces (pg_default, pg_global) are replicated.
-            include_tablespaces: [spc_slave1, spc_slave2]
+            include_tablespaces: [spc_replica1, spc_replica2]
             # If specified tablespaces named in this list are not replicated.
             exclude_tablespaces:
-                - spc_slave3 # Can also use alternate list syntax
+                - spc_replica3 # Can also use alternate list syntax
             # If specified only databases in this list and template databases
             # are replicated
             include_databases: [postgres]
@@ -112,18 +112,19 @@ configurations:
     # Second configuration
     - examplereplica2:
         match:
-            application_name: slave2
+            application_name: replica2
         filter:
-            include_tablespaces: [spc_slave2]
+            include_tablespaces: [spc_replica2]
 ```
 
 Additional Information
 ======================
 
-PDF on general concepts [here](http://static.cybertec.at/wp-content/uploads/walbouncer.pdf)
+Project homepage: https://www.cybertec-postgresql.com/en/products/walbouncer-partial-replication/
 
-Blog posts on Walbouncer: [post1](http://www.cybertec.at/2014/10/walbouncer-filtering-transaction-log/), [post2](http://www.cybertec.at/2016/08/walbouncer-refreshed-a-proxy-for-selective-postgresql-physical-replication/)
-
+Blog posts on Walbouncer:
+  * https://www.cybertec-postgresql.com/en/walbouncer-filtering-transaction-log/
+  * https://www.cybertec-postgresql.com/en/walbouncer-refreshed-a-proxy-for-selective-postgresql-physical-replication/
 
 Gotchas
 =======
@@ -138,9 +139,8 @@ command, start Walbouncer and the replica. See above PDF for more details.
 Dropping databases
 ------------------
 
-Have all slaves that want to filter out the dropped database actively streaming before you execute the drop. 
-Otherwise the slaves will not know to skip the drop record and xlog replay will fail with an error.
-
+Have all replicas that want to filter out the dropped database actively streaming before you execute the drop. 
+Otherwise the replicas will not know to skip the drop record and xlog replay will fail with an error.
 
 Potential future features
 =========================
