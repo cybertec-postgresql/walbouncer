@@ -2,20 +2,21 @@ all: walbouncer
 
 CFLAGS=-O2 -Wall -Werror -g -std=gnu99
 
-pglibdir = $(shell pg_config --libdir)
-pgincludedir = $(shell pg_config --includedir)
-pgbindir = $(shell pg_config --bindir)
+PG_CONFIG = pg_config
+pglibdir = $(shell $(PG_CONFIG) --libdir)
+pgincludedir = $(shell $(PG_CONFIG) --includedir)
+pgbindir = $(shell $(PG_CONFIG) --bindir)
 
 objects = main.o wbsocket.o wbutils.o parser/repl_gram.o parser/scansup.o parser/stringinfo.o parser/gram_support.o wbcrc32c.o wbmasterconn.o wbfilter.o wbclientconn.o wbsignals.o wbconfig.o
 
 walbouncer: $(objects)
 	gcc $(CFLAGS) -o walbouncer $(objects) -L$(pglibdir)/ -lpq -lyaml
 
- $(objects): %.o: %.c include/*.h
+$(objects): %.o: %.c $(sort $(wildcard include/*.h))
 	gcc $(CFLAGS) -I$(pgincludedir) -Iinclude -c $< -o $@
 
 clean:
-	rm walbouncer parser/repl_scanner.c parser/repl_gram.c $(objects)
+	rm -f walbouncer parser/repl_scanner.c parser/repl_gram.c $(objects)
 
 parser/repl_scanner.c : parser/repl_scanner.l
 	flex -o $@ $<
@@ -33,7 +34,8 @@ run-unit: walbouncer unittests/test
 	unittests/test
 
 install: walbouncer
-	cp walbouncer $(pgbindir)/walbouncer
+	install -d $(DESTDIR)$(pgbindir)
+	install walbouncer $(DESTDIR)$(pgbindir)/walbouncer
 
 uninstall:
-	rm $(pgbindir)/walbouncer
+	rm -f $(DESTDIR)$(pgbindir)/walbouncer
