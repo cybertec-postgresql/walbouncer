@@ -1,0 +1,38 @@
+Source: walbouncer
+Section: database
+Priority: optional
+Maintainer: Debian PostgreSQL Maintainers <team+postgresql@tracker.debian.org>
+Uploaders:
+ Christoph Berg <myon@debian.org>,
+Build-Depends:
+ architecture-is-64-bit <!pkg.postgresql.32-bit>,
+ debhelper-compat (= 13),
+ libyaml-dev,
+ postgresql-all <!nocheck>,
+ postgresql-server-dev-all (>= 217~),
+Standards-Version: 4.7.2
+Rules-Requires-Root: no
+Homepage: https://www.cybertec-postgresql.com/products/walbouncer-partial-replication/
+Vcs-Browser: https://github.com/cybertec-postgresql/walbouncer
+Vcs-Git: https://github.com/cybertec-postgresql/walbouncer.git
+
+Package: postgresql-16-walbouncer
+Architecture: any
+Depends:
+ ${misc:Depends},
+ ${postgresql:Depends},
+ ${shlibs:Depends},
+Description: proxy server for PostgreSQL replication connections
+ Walbouncer provides a proxy server for PostgreSQL replication connections. It
+ also has the capability to replace a subset of WAL records will no-ops.
+ .
+ Use cases where you would use walbouncer:
+ .
+ * For clusters with more than two replicas you can change a replica servers'
+   effective `primary_conninfo` without restarting PostgreSQL by proxying
+   it through walbouncer and changing walbouncer config when master server
+   location changes.
+ .
+ * You can choose to replicate a subset of data to save space on geographically
+   distributed databases. Use a separate tablespace per location and configure
+   walbouncer to filter out irrelevant data from the WAL stream.

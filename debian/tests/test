@@ -1,0 +1,7 @@
+#!/bin/sh
+
+set -eux
+
+WALBOUNCER=walbouncer \
+PATH=/usr/lib/postgresql/16/bin:$PATH \
+tests/run_demo.sh
