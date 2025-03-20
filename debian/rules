@@ -1,0 +1,21 @@
+#!/usr/bin/make -f
+
+export PG_SUPPORTED_VERSIONS = 17
+
+%:
+	dh $@ --with pgxs_loop
+
+override_dh_pgxs_test:
+	PATH=/usr/lib/postgresql/17/bin:$(PATH) tests/run_demo.sh
+
+override_dh_auto_build:
+	+pg_buildext build $(CURDIR)/src
+
+override_dh_auto_install:
+	+pg_buildext install $(CURDIR)/src $(CURDIR)/src postgresql-%v-walbouncer
+
+override_dh_installdocs:
+	dh_installdocs --all README.*
+
+override_dh_auto_clean:
+	$(MAKE) -C src clean PG_CONFIG=/usr/lib/postgresql/$(PG_SUPPORTED_VERSIONS)/bin/pg_config
