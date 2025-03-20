@@ -1,0 +1,7 @@
+#!/usr/bin/make -f
+
+%:
+	dh $@ --with pgxs_loop
+
+override_dh_installdocs:
+	dh_installdocs --all README.*

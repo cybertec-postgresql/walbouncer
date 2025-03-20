@@ -1,0 +1,6 @@
+Depends:
+ postgresql-15,
+ postgresql-common-dev,
+ @,
+Tests: test
+Restrictions: allow-stderr
