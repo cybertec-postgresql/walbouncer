@@ -93,7 +93,7 @@ configurations:
             application_name: replica1
             # Matches the IP address the client is connecting from. Can be a
             # specific IP or a hostmask
-            source_ip: 192.168.0.0/16
+            source: 192.168.0.0/16
         # Filter clauses can be omitted if filtering is not necessary. A record
         # is replicated if all of the include directives match and none of the
         # exclude directives match.
