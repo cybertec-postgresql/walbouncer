@@ -1,17 +1,17 @@
-listen_port: 5433
+listen_port: 6433
 master:
     host: localhost
-    port: 5432
+    port: 6432
 configurations:
-    - slave1:
+    - standby1:
         match:
-            application_name: slave1
+            application_name: standby1
         filter:
-            include_tablespaces: [spc_slave1]
+            include_tablespaces: [spc_standby1]
             exclude_databases: [test]
-    - slave2:
+    - standby2:
         match:
-            application_name: slave2
+            application_name: standby2
         filter:
-            include_tablespaces: [spc_slave2]
+            include_tablespaces: [spc_standby2]
 
