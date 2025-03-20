@@ -28,10 +28,10 @@ cleanup()
     rm -rf "$STANDBY2_DATA"
 
     rm -f walbouncer.log
-    rm -rf tablespaces
+    rm -rf $TABLESPACES
     for db in master standby1 standby2; do
         for spc in standby1 standby2; do
-            mkdir -p tablespaces/$db/$spc
+            mkdir -p $TABLESPACES/$db/$spc
         done
     done
 }
@@ -87,8 +87,8 @@ standby1_sql()
 setup_master_tablespaces()
 {
     msg "Setting up tablespace spc_standby1 and spc_standby2 on master"
-    master_sql "CREATE TABLESPACE spc_standby1 LOCATION '$WD/tablespaces/master/standby1'" || exit
-    master_sql "CREATE TABLESPACE spc_standby2 LOCATION '$WD/tablespaces/master/standby2'" || exit
+    master_sql "CREATE TABLESPACE spc_standby1 LOCATION '$TABLESPACES/master/standby1'" || exit
+    master_sql "CREATE TABLESPACE spc_standby2 LOCATION '$TABLESPACES/master/standby2'" || exit
 }
 
 setup_standby()
@@ -97,8 +97,8 @@ setup_standby()
     msg "Taking a backup for standby $STANDBY_NAME"
     pg_basebackup -D "$WD/$STANDBY_NAME" -h localhost -p $MASTER_PORT -U postgres \
         --checkpoint=fast \
-        --tablespace-mapping="$WD/tablespaces/master/standby1=$WD/tablespaces/$STANDBY_NAME/standby1" \
-        --tablespace-mapping="$WD/tablespaces/master/standby2=$WD/tablespaces/$STANDBY_NAME/standby2"
+        --tablespace-mapping="$TABLESPACES/master/standby1=$TABLESPACES/$STANDBY_NAME/standby1" \
+        --tablespace-mapping="$TABLESPACES/master/standby2=$TABLESPACES/$STANDBY_NAME/standby2"
     (cat <<EOF
         recovery_target_timeline = 'latest'
         primary_conninfo = 'host=localhost port=$WALBOUNCER_PORT user=postgres application_name=$STANDBY_NAME'
@@ -163,9 +163,9 @@ check_replication()
     msg "Waiting 3s for replication to complete"
     sleep 3
     msg "Master disk usage from spc_standby2:"
-    du -sh $WD/tablespaces/master/standby2
+    du -sh $TABLESPACES/master/standby2
     msg "Standby 1 disk usage from spc_standby2:"
-    du -sh $WD/tablespaces/standby1/standby2
+    du -sh $TABLESPACES/standby1/standby2
 }
 
 check_different_rmgrs()
@@ -209,6 +209,7 @@ STANDBY1_PORT="6434"
 STANDBY2_DATA="$WD/standby2"
 : ${WALBOUNCER:="$WD/../src/walbouncer"}
 WALBOUNCER_PORT=6433
+TABLESPACES=/tmp/tablespaces
 
 cleanup
 trap "killall postgres walbouncer" ERR
