@@ -1,5 +1,7 @@
 #!/bin/bash
 
+set -eu
+
 msg()
 {
     echo -e "\e[1m\e[32m *" "$@"
@@ -16,19 +18,19 @@ shutdown_pg()
 cleanup()
 {
     msg "Doing cleanup from previous runs"
-    killall -q walbouncer
-    
+    killall -q walbouncer || :
+
     shutdown_pg "$MASTER_DATA"
     rm -rf "$MASTER_DATA"
-    shutdown_pg "$SLAVE1_DATA"
-    rm -rf "$SLAVE1_DATA"
-    shutdown_pg "$SLAVE2_DATA"
-    rm -rf "$SLAVE2_DATA"
-    
-    rm walbouncer.log
+    shutdown_pg "$STANDBY1_DATA"
+    rm -rf "$STANDBY1_DATA"
+    shutdown_pg "$STANDBY2_DATA"
+    rm -rf "$STANDBY2_DATA"
+
+    rm -f walbouncer.log
     rm -rf tablespaces
-    for db in master slave1 slave2; do
-        for spc in slave1 slave2; do
+    for db in master standby1 standby2; do
+        for spc in standby1 standby2; do
             mkdir -p tablespaces/$db/$spc
         done
     done
@@ -40,30 +42,32 @@ setup_master()
     initdb -k --auth=trust -U postgres -N -D "$MASTER_DATA" 2>&1 > initdb.log || exit
     rm initdb.log
     (cat <<EOF
-        port=5432
-        max_connections=50
-        shared_buffers=32MB
+        port=$MASTER_PORT
+        max_connections = 50
+        shared_buffers = 32MB
         wal_level = hot_standby
         max_wal_senders = 5
-        wal_keep_segments = 50
+        wal_keep_size = 1GB
         hot_standby = on
         logging_collector = on
-        log_directory = 'pg_log'
+        log_directory = 'log'
         log_filename = 'postgresql.log'
         log_connections = on
         log_disconnections = on
         log_line_prefix = '[%m] %u %d '
         # log_min_messages = debug2
-		hot_standby_feedback = on
-		fsync = off
-		unix_socket_directories='/tmp'
+        hot_standby_feedback = on
+        fsync = off
+        unix_socket_directories='/tmp'
 EOF
     ) > "$MASTER_DATA/postgresql.conf"
     (cat <<EOF
         local   all             all                                     trust
         host    all             all             127.0.0.1/32            trust
+        host    all             all             ::1/128                 trust
         local   replication     all                                     trust
         host    replication     all             127.0.0.1/32            trust
+        host    replication     all             ::1/128                 trust
 EOF
     ) > "$MASTER_DATA/pg_hba.conf"
     pg_ctl -D "$MASTER_DATA" -l "$MASTER_DATA/startup.log" -w start || exit
@@ -72,94 +76,96 @@ EOF
 
 master_sql()
 {
-    psql -h localhost -p 5432 -U postgres -c "$1"
+    psql -h localhost -p $MASTER_PORT -U postgres -c "$1"
 }
 
-slave1_sql()
+standby1_sql()
 {
-    psql -h localhost -p 5434 -U postgres -c "$1"
+    psql -h localhost -p $STANDBY1_PORT -U postgres -c "$1"
 }
 
 setup_master_tablespaces()
 {
-    msg "Setting up tablespace spc_slave1 and spc_slave2 on master"
-    master_sql "CREATE TABLESPACE spc_slave1 LOCATION '$WD/tablespaces/master/slave1'" || exit
-    master_sql "CREATE TABLESPACE spc_slave2 LOCATION '$WD/tablespaces/master/slave2'" || exit
+    msg "Setting up tablespace spc_standby1 and spc_standby2 on master"
+    master_sql "CREATE TABLESPACE spc_standby1 LOCATION '$WD/tablespaces/master/standby1'" || exit
+    master_sql "CREATE TABLESPACE spc_standby2 LOCATION '$WD/tablespaces/master/standby2'" || exit
 }
 
-setup_slave()
+setup_standby()
 {
-    SLAVE_NAME=$1
-    msg "Taking a backup for slave $SLAVE_NAME"
-    pg_basebackup -D "$WD/$SLAVE_NAME" -h localhost -p 5432 -U postgres \
+    STANDBY_NAME=$1
+    msg "Taking a backup for standby $STANDBY_NAME"
+    pg_basebackup -D "$WD/$STANDBY_NAME" -h localhost -p $MASTER_PORT -U postgres \
         --checkpoint=fast \
-        --tablespace-mapping="$WD/tablespaces/master/slave1=$WD/tablespaces/$SLAVE_NAME/slave1" \
-        --tablespace-mapping="$WD/tablespaces/master/slave2=$WD/tablespaces/$SLAVE_NAME/slave2"
+        --tablespace-mapping="$WD/tablespaces/master/standby1=$WD/tablespaces/$STANDBY_NAME/standby1" \
+        --tablespace-mapping="$WD/tablespaces/master/standby2=$WD/tablespaces/$STANDBY_NAME/standby2"
     (cat <<EOF
         recovery_target_timeline = 'latest'
-        standby_mode = on
-        primary_conninfo = 'host=localhost port=5433 user=postgres application_name=$SLAVE_NAME'
+        primary_conninfo = 'host=localhost port=$WALBOUNCER_PORT user=postgres application_name=$STANDBY_NAME'
 EOF
-    ) > "$WD/$SLAVE_NAME/recovery.conf"
-    rm "$WD/$SLAVE_NAME/pg_log/postgresql.log"
-    sed -i "s/port=5432/port=$2/" "$WD/$SLAVE_NAME/postgresql.conf"
+    ) > "$WD/$STANDBY_NAME/postgresql.auto.conf"
+    touch "$WD/$STANDBY_NAME/standby.signal"
+    rm "$WD/$STANDBY_NAME/log/postgresql.log"
+    sed -i "s/port=$MASTER_PORT/port=$2/" "$WD/$STANDBY_NAME/postgresql.conf"
 }
 
 start_walbouncer()
 {
-    msg "Starting walbouncer on port 5433 (output in walbouncer.log)"
-    nohup $WALBOUNCER -c democonf.yaml -vv > walbouncer.log &
+    msg "Starting walbouncer on port $WALBOUNCER_PORT (output in walbouncer.log)"
+   # nohup
+    $WALBOUNCER -c democonf.yaml -v &
+    sleep 1
 }
 
-start_slave()
+start_standby()
 {
-    SLAVE_NAME=$1
-    msg "Starting slave $SLAVE_NAME"
-    pg_ctl -D "$WD/$SLAVE_NAME" -l "$WD/$SLAVE_NAME/startup.log" -w start || exit
+    STANDBY_NAME=$1
+    msg "Starting standby $STANDBY_NAME"
+    pg_ctl -D "$WD/$STANDBY_NAME" -l "$WD/$STANDBY_NAME/startup.log" -w start || exit
 }
 
 create_test_tables()
 {
-    msg "Creating test tables on_all, on_slave1 and on_slave2"
-    psql -h localhost -p 5432 -U postgres -v ON_ERROR_STOP=1 -f - <<SQL
+    msg "Creating test tables on_all, on_standby1 and on_standby2"
+    psql -h localhost -p $MASTER_PORT -U postgres -v ON_ERROR_STOP=1 -f - <<SQL
 CREATE TABLE on_all (id serial primary key,
                      v int,
                      filler text,
                      tstamp timestamptz default current_timestamp);
-CREATE TABLE on_slave1 (id serial primary key,
+CREATE TABLE on_standby1 (id serial primary key,
                         v int,
                         filler text,
-                        tstamp timestamptz default current_timestamp) TABLESPACE spc_slave1;
-CREATE TABLE on_slave2 (id serial primary key,
+                        tstamp timestamptz default current_timestamp) TABLESPACE spc_standby1;
+CREATE TABLE on_standby2 (id serial primary key,
                         v int, filler text,
-                        tstamp timestamptz default current_timestamp) TABLESPACE spc_slave2;
+                        tstamp timestamptz default current_timestamp) TABLESPACE spc_standby2;
 SQL
 }
 
 check_replication()
 {
     master_sql "INSERT INTO on_all (v) VALUES (1)"
-    master_sql "INSERT INTO on_slave1 (v) VALUES (1)"
-    master_sql "INSERT INTO on_slave2 (v) VALUES (1)"
-    
+    master_sql "INSERT INTO on_standby1 (v) VALUES (1)"
+    master_sql "INSERT INTO on_standby2 (v) VALUES (1)"
+
     sleep 1
-    
+
     msg "Data in the default tablespace"
-    slave1_sql "SELECT * FROM on_all"
-    msg "Data in the slave 1 tablespace"
-    slave1_sql "SELECT * FROM on_slave1"
-    msg "Data in the slave 2 tablespace (expect error)"
-    slave1_sql "SELECT * FROM on_slave2"
-    
-    msg "Generating some data in spc_slave2"
-    master_sql "INSERT INTO on_slave2 (v, filler) SELECT x, REPEAT(' ', 1000) FROM generate_series(1,10000) x"
-    
+    standby1_sql "SELECT * FROM on_all"
+    msg "Data in the standby 1 tablespace"
+    standby1_sql "SELECT * FROM on_standby1"
+    msg "Data in the standby 2 tablespace (expect error)"
+    standby1_sql "SELECT * FROM on_standby2" || :
+
+    msg "Generating some data in spc_standby2"
+    master_sql "INSERT INTO on_standby2 (v, filler) SELECT x, REPEAT(' ', 1000) FROM generate_series(1,10000) x"
+
     msg "Waiting 3s for replication to complete"
     sleep 3
-    msg "Master disk usage from spc_slave2:"
-    du -sh $WD/tablespaces/master/slave2
-    msg "Slave 1 disk usage from spc_slave2:"
-    du -sh $WD/tablespaces/slave1/slave2
+    msg "Master disk usage from spc_standby2:"
+    du -sh $WD/tablespaces/master/standby2
+    msg "Standby 1 disk usage from spc_standby2:"
+    du -sh $WD/tablespaces/standby1/standby2
 }
 
 check_different_rmgrs()
@@ -174,9 +180,9 @@ check_different_rmgrs()
 	master_sql "create index on rmgr_test1 using gist (c1)"
 	master_sql "insert into rmgr_test1 select 1, 'hello'"
 	sleep 1
-	msg "Slave1 data in rmgr_test1"
-	slave1_sql "SELECT * FROM rmgr_test1"
-	slave1_sql "\d rmgr_test1"
+	msg "Standby 1 data in rmgr_test1"
+	standby1_sql "SELECT * FROM rmgr_test1"
+	standby1_sql "\d rmgr_test1"
 }
 
 increment_master_timeline()
@@ -187,7 +193,8 @@ increment_master_timeline()
         recovery_target_timeline = 'latest'
         restore_command = 'false'
 EOF
-    ) > "$MASTER_DATA/recovery.conf"
+    ) > "$MASTER_DATA/postgresql.auto.conf"
+    touch "$WD/$STANDBY_NAME/standby.signal"
     pg_ctl -D "$MASTER_DATA" -l "$MASTER_DATA/startup.log" -w start || exit
 }
 
@@ -196,19 +203,24 @@ cd "$TEST_HOME"
 WD="$(pwd)"
 
 MASTER_DATA="$WD/master"
-SLAVE1_DATA="$WD/slave1"
-SLAVE2_DATA="$WD/slave2"
-WALBOUNCER="$WD/../src/walbouncer"
+MASTER_PORT="6432"
+STANDBY1_DATA="$WD/standby1"
+STANDBY1_PORT="6434"
+STANDBY2_DATA="$WD/standby2"
+: ${WALBOUNCER:="$WD/../src/walbouncer"}
+WALBOUNCER_PORT=6433
 
 cleanup
+trap "killall postgres walbouncer" ERR
+
 setup_master
 setup_master_tablespaces
-setup_slave slave1 5434
+setup_standby standby1 $STANDBY1_PORT
 # Will enable this when walbouncer supports forking
-#setup_slave slave2 5435
+#setup_standby standby2 5435
 increment_master_timeline
 start_walbouncer
-start_slave slave1
+start_standby standby1
 
 create_test_tables
 
@@ -216,6 +228,8 @@ check_replication
 
 #check_different_rmgrs
 
-msg "Master is running on port 5432, slave1 on 5434."
-msg "walbouncer.log contains heaps of debug info."
-msg "Have fun!"
+#msg "Master is running on port $MASTER_PORT, standby1 on $STANDBY1_PORT."
+#msg "walbouncer.log contains heaps of debug info."
+#msg "Have fun!"
+
+cleanup
