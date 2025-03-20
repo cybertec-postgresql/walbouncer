@@ -16,20 +16,20 @@ configurations:
         # must match.
         match:
             # Check application_name of the client for an exact match.
-            application_name: slave1
+            application_name: replica1
             # Matches the IP address the client is connecting from. Can be a
             # specific IP or a hostmask
-            source_ip: 192.168.0.0/16
+            source: 127.0.0.0/8
         # Filter clauses can be omitted if filtering is not necessary. A record
         # is replicated if all of the include directives match and none of the
         # exclude directives match.
         filter:
             # If specified only tablespaces named in this list and default
             # tablespaces (pg_default, pg_global) are replicated.
-            include_tablespaces: [spc_slave1, spc_slave2]
+            include_tablespaces: [spc_replica1, spc_replica2]
             # If specified tablespaces named in this list are not replicated.
             exclude_tablespaces:
-                - spc_slave3 # Can also use alternate list syntax
+                - spc_replica3 # Can also use alternate list syntax
             # If specified only databases in this list and template databases
             # are replicated
             include_databases: [postgres]
@@ -38,7 +38,7 @@ configurations:
     # Second configuration
     - examplereplica2:
         match:
-            application_name: slave2
+            application_name: replica2
         filter:
-            include_tablespaces: [spc_slave2]
+            include_tablespaces: [spc_replica2]
 
