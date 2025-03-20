@@ -278,6 +278,7 @@ main(int argc, char **argv)
 		{
 		case 'c':
 			config_filename = wbstrdup(optarg);
+			wb_read_config(CurrentConfig, config_filename);
 			break;
 		case 'p':
 			CurrentConfig->listen_port = ensure_atoi(optarg);
@@ -301,9 +302,6 @@ main(int argc, char **argv)
 			exit(1);
 		}
 	}
-
-	if (config_filename)
-		wb_read_config(CurrentConfig, config_filename);
 
 	InitializeBouncerArray();
 	InitDeathWatchHandle();
