@@ -88,7 +88,7 @@ WbFProcessWalDataBlock(ReplMessage* msg, FilterData* fl, XLogRecPtr *retryPos, i
 			}
 
 			if (header->xlp_magic != xlog_page_magic)
-				error("Received page with invalid page magic");
+				error("Received page with invalid page magic 0x%x", header->xlp_magic);
 
 			if (header->xlp_info & XLP_LONG_HEADER)
 				ReplMessageConsume(msg, SizeOfXLogLongPHD - SizeOfXLogShortPHD);

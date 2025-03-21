@@ -715,7 +715,9 @@ WbCCExecStartPhysical(WbConn conn, MasterConn *master, ReplicationCommand *cmd)
 	 * Each page of XLOG file has a header like this:
 	 */
 	server_version = atoi(WbMcShowVariable(master, "server_version_num"));
-	if (server_version >= 170000)
+	if (server_version >= 180000)
+		xlog_page_magic = 0xD118;
+	else if (server_version >= 170000)
 		xlog_page_magic = 0xD116;
 	else if (server_version >= 160000)
 		xlog_page_magic = 0xD113;
