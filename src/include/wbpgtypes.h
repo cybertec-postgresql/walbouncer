@@ -1,6 +1,8 @@
 #ifndef _WB_PGTYPES_H
 #define _WB_PGTYPES_H
 
+#include "pg_config.h"
+
 #include "wbglobals.h"
 #include "wb_pg_config.h"
 
@@ -66,8 +68,19 @@ typedef struct BkpBlock
 /*
  * Each page of XLOG file has a header like this:
  */
-#define XLOG_PAGE_MAGIC_MIN 0xD116	/* in WB case it's OK to use a range of versions as we're only interested in fixing the RelFileNode location */
-#define XLOG_PAGE_MAGIC_MAX 0xD116
+#if PG_VERSION_NUM >= 170000
+#define XLOG_PAGE_MAGIC 0xD116
+#elif PG_VERSION_NUM >= 160000
+#define XLOG_PAGE_MAGIC 0xD113
+#elif PG_VERSION_NUM >= 150000
+#define XLOG_PAGE_MAGIC 0xD110
+#elif PG_VERSION_NUM >= 140000
+#define XLOG_PAGE_MAGIC 0xD10D
+#elif PG_VERSION_NUM >= 130000
+#define XLOG_PAGE_MAGIC 0xD106
+#else
+#error "unsupported PG version"
+#endif
 
 typedef struct XLogPageHeaderData
 {

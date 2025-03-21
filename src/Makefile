@@ -1,10 +1,5 @@
 all: walbouncer
 
-# Check for PostgrSQL 17
-ifeq ($(shell pg_config --version | grep -E "PostgreSQL 17"),)
-    $(error PostgreSQL version 9.5 through 17 required, pg_config provides $(shell pg_config --version))
-endif
-
 CFLAGS=-O2 -Wall -Werror -g -std=gnu99
 
 pglibdir = $(shell pg_config --libdir)

@@ -1,3 +1,5 @@
+#include "pg_config.h"
+
 #include "wbmasterconn.h"
 
 #include<errno.h>
@@ -304,7 +306,7 @@ void
 WbMcSendFeedback(MasterConn *master, HSFeedbackMessage *feedback)
 {
 	char feedback_message[1+8+4+4
-	#if PG_VERSION >= 100000
+	#if PG_VERSION_NUM >= 100000
 		+4+4
 	#endif
 	];

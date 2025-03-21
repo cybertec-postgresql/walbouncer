@@ -35,7 +35,4 @@ typedef uint32 TransactionId;
 #define STATUS_OK 0
 #define STATUS_ERROR -1
 
-//TODO: read this from pg_config
-#define PG_VERSION 100000
-
 #endif
