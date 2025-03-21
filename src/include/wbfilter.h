@@ -46,6 +46,6 @@ typedef struct {
 
 FilterData* WbFCreateProcessingState(XLogRecPtr startPos);
 void WbFFreeProcessingState(FilterData* fl);
-bool WbFProcessWalDataBlock(ReplMessage* msg, FilterData* fl, XLogRecPtr *retryPos);
+bool WbFProcessWalDataBlock(ReplMessage* msg, FilterData* fl, XLogRecPtr *retryPos, int xlog_page_magic);
 
 #endif

@@ -709,6 +709,24 @@ WbCCExecStartPhysical(WbConn conn, MasterConn *master, ReplicationCommand *cmd)
 	XLogRecPtr startReceivingFrom;
 	ReplMessage *msg = wballoc(sizeof(ReplMessage));
 	FilterData *fl = WbFCreateProcessingState(cmd->startpoint);
+	int server_version, xlog_page_magic;
+
+	/*
+	 * Each page of XLOG file has a header like this:
+	 */
+	server_version = atoi(WbMcShowVariable(master, "server_version_num"));
+	if (server_version >= 170000)
+		xlog_page_magic = 0xD116;
+	else if (server_version >= 160000)
+		xlog_page_magic = 0xD113;
+	else if (server_version >= 150000)
+		xlog_page_magic = 0xD110;
+	else if (server_version >= 140000)
+		xlog_page_magic = 0xD10D;
+	else if (server_version >= 130000)
+		xlog_page_magic = 0xD106;
+	else
+		error("Unsupported master version %d", server_version);
 
 	WbCCLookupFilteringOids(conn, fl);
 
@@ -753,7 +771,7 @@ again:
 				case MSG_WAL_DATA:
 				{
 					XLogRecPtr restartPos;
-					if (!WbFProcessWalDataBlock(msg, fl, &restartPos))
+					if (!WbFProcessWalDataBlock(msg, fl, &restartPos, xlog_page_magic))
 					{
 						WbMcEndStreaming(master, NULL, NULL);
 						startReceivingFrom = restartPos;

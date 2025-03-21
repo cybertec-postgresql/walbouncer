@@ -54,7 +54,7 @@ void WbFFreeProcessingState(FilterData* fl)
 #define parse_debug(...)
 
 bool
-WbFProcessWalDataBlock(ReplMessage* msg, FilterData* fl, XLogRecPtr *retryPos)
+WbFProcessWalDataBlock(ReplMessage* msg, FilterData* fl, XLogRecPtr *retryPos, int xlog_page_magic)
 {
 	// consume the whole message
 	while (msg->dataPtr < msg->dataLen)
@@ -87,7 +87,7 @@ WbFProcessWalDataBlock(ReplMessage* msg, FilterData* fl, XLogRecPtr *retryPos)
 				continue;
 			}
 
-			if (header->xlp_magic != XLOG_PAGE_MAGIC)
+			if (header->xlp_magic != xlog_page_magic)
 				error("Received page with invalid page magic");
 
 			if (header->xlp_info & XLP_LONG_HEADER)

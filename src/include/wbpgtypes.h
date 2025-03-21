@@ -65,23 +65,6 @@ typedef struct BkpBlock
 	/* ACTUAL BLOCK DATA FOLLOWS AT END OF STRUCT */
 } BkpBlock;
 
-/*
- * Each page of XLOG file has a header like this:
- */
-#if PG_VERSION_NUM >= 170000
-#define XLOG_PAGE_MAGIC 0xD116
-#elif PG_VERSION_NUM >= 160000
-#define XLOG_PAGE_MAGIC 0xD113
-#elif PG_VERSION_NUM >= 150000
-#define XLOG_PAGE_MAGIC 0xD110
-#elif PG_VERSION_NUM >= 140000
-#define XLOG_PAGE_MAGIC 0xD10D
-#elif PG_VERSION_NUM >= 130000
-#define XLOG_PAGE_MAGIC 0xD106
-#else
-#error "unsupported PG version"
-#endif
-
 typedef struct XLogPageHeaderData
 {
 	uint16		xlp_magic;		/* magic value for correctness checks */
