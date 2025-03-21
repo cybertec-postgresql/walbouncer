@@ -3,5 +3,4 @@
 set -eux
 
 WALBOUNCER=walbouncer \
-PATH=/usr/lib/postgresql/15/bin:$PATH \
-tests/run_demo.sh
+pg_buildext run tests/run_demo.sh

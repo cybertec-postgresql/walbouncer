@@ -1,7 +1,10 @@
 #!/usr/bin/make -f
 
 %:
-	dh $@ --with pgxs_loop
+	dh $@
 
-override_dh_installdocs:
-	dh_installdocs --all README.*
+override_dh_auto_install:
+	# handled by dh_install
+
+override_dh_auto_test:
+	pg_buildext run tests/run_demo.sh

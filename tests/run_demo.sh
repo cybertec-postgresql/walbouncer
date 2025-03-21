@@ -205,6 +205,7 @@ EOF
 TEST_HOME="$(dirname $0)"
 cd "$TEST_HOME"
 WD="$(pwd)"
+PATH=$(${PG_CONFIG:=pg_config} --bindir):$PATH
 
 MASTER_DATA="$WD/master"
 MASTER_PORT="6432"
@@ -214,6 +215,8 @@ STANDBY2_DATA="$WD/standby2"
 : ${WALBOUNCER:="$WD/../src/walbouncer"}
 WALBOUNCER_PORT=6433
 TABLESPACES=/tmp/tablespaces
+
+postgres --version
 
 cleanup
 trap "killall postgres walbouncer" ERR

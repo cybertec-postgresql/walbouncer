@@ -1,5 +1,5 @@
 Depends:
- postgresql-15,
+ postgresql-all,
  postgresql-common-dev,
  @,
 Tests: test

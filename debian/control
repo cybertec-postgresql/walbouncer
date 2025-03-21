@@ -16,7 +16,7 @@ Homepage: https://www.cybertec-postgresql.com/products/walbouncer-partial-replic
 Vcs-Browser: https://github.com/cybertec-postgresql/walbouncer
 Vcs-Git: https://github.com/cybertec-postgresql/walbouncer.git
 
-Package: postgresql-17-walbouncer
+Package: postgresql-walbouncer
 Architecture: any
 Depends:
  ${misc:Depends},
